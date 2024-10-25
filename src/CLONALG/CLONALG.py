@@ -1,29 +1,32 @@
 import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 
 class ClonalgAnomalyDetection:
-    def __init__(self, normal_data, clone_factor, mutation_rate, num_generations, threshold):
-        self.normal_data = normal_data
+    def __init__(self, train_data, clone_factor, mutation_rate, num_generations, threshold):
+        # Inicializa dados de treino e parâmetros do algoritmo
+        self.normal_data = train_data
         self.clone_factor = clone_factor
         self.mutation_rate = mutation_rate
         self.num_generations = num_generations
-        self.threshold = threshold  # Limiar para detectar anomalias
-        self.population_size = len(normal_data)
-        self.problem_size = normal_data.shape[1]
+        self.threshold = threshold
+        self.population_size = 50
+        self.problem_size = train_data.shape[1]
         self.population = [self.random_solution() for _ in range(self.population_size)]
 
     def random_solution(self):
-        """Cria uma solução aleatória dentro do intervalo dos dados normais."""
+        # Gera uma solução aleatória com base nos dados de treino
         min_vals = np.min(self.normal_data, axis=0)
         max_vals = np.max(self.normal_data, axis=0)
         return np.random.uniform(min_vals, max_vals)
 
     def fitness(self, solution):
-        """Calcula a distância mínima da solução para os dados normais."""
+        # Calcula a menor distância entre uma solução e os dados de treino
         distances = np.linalg.norm(self.normal_data - solution, axis=1)
-        return np.min(distances)  # Usamos a menor distância como medida de anomalia
+        return np.min(distances)
 
     def clone_and_mutate(self, solution):
-        """Clona e aplica mutação ao clone."""
+        # Clona e aplica mutação em uma solução
         clones = [solution.copy() for _ in range(self.clone_factor)]
         for clone in clones:
             mutation = np.random.uniform(-1, 1, size=self.problem_size) * self.mutation_rate
@@ -31,56 +34,103 @@ class ClonalgAnomalyDetection:
         return clones
 
     def select(self):
-        """Seleciona as melhores soluções com base no fitness (menor distância)."""
+        # Seleciona as melhores soluções
         self.population.sort(key=self.fitness)
         return self.population[:self.population_size]
 
-    def detect_anomalies(self, data):
-        """Detecta anomalias em um conjunto de dados."""
+    def detect_anomalies(self, test_data):
+        # Detecta anomalias e calcula a acurácia
         anomalies = []
-        for sample in data:
-            if self.fitness(sample) > self.threshold:
-                anomalies.append(sample)
-        return anomalies
+        first_anomaly = None
+        first_anomaly_index = None
+        true_positive = 0
+        false_positive = 0
+        false_negative = 0
+        true_negative = 0
+
+        for index, sample in enumerate(test_data):
+            is_anomaly = self.fitness(sample) > self.threshold
+            actual_is_anomaly = index >= len(test_data) - 5  # Assume que as últimas 5 amostras são anomalias
+
+            if is_anomaly:
+                anomalies.append((index, sample))
+                if actual_is_anomaly:
+                    true_positive += 1
+                    if first_anomaly is None:
+                        first_anomaly = sample
+                        first_anomaly_index = index
+                else:
+                    false_positive += 1
+            else:
+                if actual_is_anomaly:
+                    false_negative += 1
+                else:
+                    true_negative += 1
+
+        # Cálculo da acurácia
+        accuracy = (true_positive + true_negative) / (true_positive + true_negative + false_positive + false_negative)
+        
+        return anomalies, first_anomaly, first_anomaly_index, accuracy
 
     def evolve(self):
-        """Evolui a população, mantendo as melhores soluções a cada geração."""
+        # Executa o ciclo de clonagem e seleção
         for generation in range(self.num_generations):
-            # Clonagem e mutação
             new_population = []
             for solution in self.population:
                 clones = self.clone_and_mutate(solution)
                 new_population.extend(clones)
-            
-            # Avaliação e seleção
+
             self.population = self.select()
-            print(f"Geração {generation+1}, Melhor fitness (menor distância): {self.fitness(self.population[0])}")
+            print(f"Geração {generation + 1}, Melhor fitness (menor distância): {self.fitness(self.population[0])}")
 
-        # Retorna as soluções finais
-        return self.population
+def load_and_normalize_data(file_path, train_size, columns):
+    # Carrega os dados do arquivo CSV e normaliza
+    data = pd.read_csv(file_path)
+    
+    # Converte todos os dados para numéricos, forçando erros para NaN
+    data = data.apply(pd.to_numeric, errors='coerce')
+    
+    # Remove colunas que contêm NaN
+    data = data.dropna(axis=1)
 
-# Exemplo de uso para detecção de anomalias
-np.random.seed(42)  # Para reprodutibilidade
+    # Normaliza os dados das colunas especificadas
+    scaler = MinMaxScaler()
+    normalized_data = scaler.fit_transform(data[columns])
 
-# Geração de um conjunto de dados normal (padrões normais)
-normal_data = np.random.normal(loc=0, scale=1, size=(100, 5))
+    # Converte para um array NumPy
+    normalized_data = normalized_data
+    
+    train_data = normalized_data[:train_size]
+    test_data = normalized_data[train_size:]
+    
+    return train_data, test_data
 
-# Dados com possíveis anomalias
-test_data = np.vstack([
-    np.random.normal(loc=0, scale=1, size=(95, 5)),  # Dados normais
-    np.random.normal(loc=5, scale=1, size=(5, 5))    # Anomalias
-])
+# Exemplo de uso:
+
+# Caminho do arquivo CSV e proporção dos dados de treino
+file_path = 'datasets/dataset_config_1.csv'
+train_size = 21001  # Define os primeiros 21001 registros como treino
+
+# Definindo as colunas de interesse (y e z)
+columns_of_interest = ['y']  
+
+# Carrega e normaliza os dados
+train_data, test_data = load_and_normalize_data(file_path, train_size, columns_of_interest)
 
 # Parâmetros do algoritmo
-clone_factor = 5
-mutation_rate = 0.1
-num_generations = 50
-threshold = 2.0  # Limiar de distância para considerar uma anomalia
+clone_factor = 1000
+mutation_rate = 0.5
+num_generations = 1000
+threshold = 0.5  # Distância limite para considerar uma amostra anômala (ajuste conforme necessário)
 
-# Execução do CLONALG para detecção de anomalias
-clonalg = ClonalgAnomalyDetection(normal_data, clone_factor, mutation_rate, num_generations, threshold)
+# Inicializa o CLONALG
+clonalg = ClonalgAnomalyDetection(train_data, clone_factor, mutation_rate, num_generations, threshold)
+
+# Evolução do algoritmo
 clonalg.evolve()
 
-# Detectando anomalias
-anomalies = clonalg.detect_anomalies(test_data)
-print("Anomalias detectadas:", anomalies)
+# Detecção de anomalias
+anomalies, first_anomaly, first_anomaly_index, accuracy = clonalg.detect_anomalies(test_data)
+
+# Exibe os resultados
+print(f"Acurácia do modelo: {accuracy:.2f}")
