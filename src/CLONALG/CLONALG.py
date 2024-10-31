@@ -95,6 +95,8 @@ def load_and_normalize_data(file_path, train_size, columns):
     test_data = normalized_data[train_size:]
     return train_data, test_data
 
+
+
 # Parâmetros principais do CLONALG
 file_path = 'datasets/dataset_config_1.csv'
 train_size = 21001
@@ -106,23 +108,21 @@ mutation_rate = 0.1
 num_generations = 50
 threshold = 0.5
 
+
+
 # Inicializa e evolui o CLONALG
 clonalg = ClonalgAnomalyDetection(train_data, clone_factor, mutation_rate, num_generations, threshold)
 fitness_progress = clonalg.evolve()
+
+
 
 # Detecta anomalias e calcula a acurácia final
 accuracy = clonalg.detect_anomalies(test_data)
 print(f"Acurácia do modelo: {accuracy:.2f}%")
 
+
+
 # Salva o modelo treinado para uso posterior
 joblib.dump(clonalg, 'CLONALG.pkl')
 print("Modelo CLONALG salvo como 'CLONALG.pkl'")
 
-# Plot do desempenho (progresso do fitness ao longo das gerações)
-# plt.plot(range(1, num_generations + 1), fitness_progress)
-# plt.xlabel('Gerações')
-# plt.ylabel('Melhor Fitness (Menor Distância)')
-# plt.title('Progresso do Fitness do Modelo CLONALG')
-# plt.grid()
-# plt.savefig("CLONALG_fitness_progress.png")
-# plt.show()
