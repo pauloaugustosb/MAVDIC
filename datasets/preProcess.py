@@ -9,21 +9,21 @@ dataset['time'] = pd.timedelta_range(start='00:00:00', periods=len(dataset), fre
 # Não definir 'time' como índice
 # dataset.set_index('time', inplace=True) 
 
-dataset.drop(columns=['x'], inplace=True)   # Excluir dados em X, autor não utiliza essa coluna, gerando dataset de trabalho
+dataset.drop(columns=['x', 'z'], inplace=True)   # Excluir dados em X, autor não utiliza essa coluna, gerando dataset de trabalho
 
 # Separando as configurações
 dataset_config1 = dataset[dataset['wconfid'] == 1]
 dataset_config2 = dataset[dataset['wconfid'] == 2]
 dataset_config3 = dataset[dataset['wconfid'] == 3]
-dataset_config12 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 2)]
-dataset_config13 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 3)]
+# dataset_config12 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 2)]
+# dataset_config13 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 3)]
 
 # Exportando para arquivos CSV
 dataset_config1.to_csv('datasets/dataset_config_1.csv', index=False)
 dataset_config2.to_csv('datasets/dataset_config_2.csv', index=False)
 dataset_config3.to_csv('datasets/dataset_config_3.csv', index=False)
-dataset_config12.to_csv('dataset_config_12.csv', index=False)
-dataset_config13.to_csv('dataset_config_13.csv', index=False)
+# dataset_config12.to_csv('datasets/dataset_config_12.csv', index=False)
+# dataset_config13.to_csv('datasets/dataset_config_13.csv', index=False)
 
 # Plotando os gráficos
 plt.figure(1)
