@@ -1,108 +1,57 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 
-# Abrindo o arquivo principal e atribuindo a coluna de tempo para plote da série temporal
-dataset = pd.read_csv(r"datasets\first_database.csv")
-dataset['time'] = pd.timedelta_range(start='00:00:00', periods=len(dataset), freq='s')
+# Carregar o dataset
+data = pd.read_csv('datasets/data/main/first_database.csv')
 
-# Não definir 'time' como índice
-# dataset.set_index('time', inplace=True) 
+# Remover colunas e linhas completamente vazias
+data = data.dropna(axis=0, how='all')
+data = data.dropna(axis=1, how='all')
 
-dataset.drop(columns=['x', 'z'], inplace=True)   # Excluir dados em X, autor não utiliza essa coluna, gerando dataset de trabalho
+# Remover as colunas 'x' e 'z'
+data = data.drop(columns=['x', 'z'], errors='ignore')
 
-# Separando as configurações
-dataset_config1 = dataset[dataset['wconfid'] == 1]
-dataset_config2 = dataset[dataset['wconfid'] == 2]
-dataset_config3 = dataset[dataset['wconfid'] == 3]
-# dataset_config12 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 2)]
-# dataset_config13 = dataset[(dataset['wconfid'] == 1) | (dataset['wconfid'] == 3)]
+# Converter a coluna 'y' para valores numéricos
+data['y'] = pd.to_numeric(data['y'], errors='coerce')
 
-# Exportando para arquivos CSV
-dataset_config1.to_csv('datasets/dataset_config_1.csv', index=False)
-dataset_config2.to_csv('datasets/dataset_config_2.csv', index=False)
-dataset_config3.to_csv('datasets/dataset_config_3.csv', index=False)
-# dataset_config12.to_csv('datasets/dataset_config_12.csv', index=False)
-# dataset_config13.to_csv('datasets/dataset_config_13.csv', index=False)
+# Remover linhas com valores ausentes na coluna 'y'
+data = data.dropna(subset=['y'])
 
-# Plotando os gráficos
-plt.figure(1)
-plt.subplot(211)
-plt.plot(dataset_config1['time'], dataset_config1['y'], label='Vibração y')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('y')
-plt.title('Configuração normal (1)')
-plt.grid()
-plt.subplot(212)
-plt.plot(dataset_config1['time'], dataset_config1['z'], 'y', label='Vibração z')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('z')
-plt.grid()
-plt.savefig('datasets/config1.png')
-plt.show()
+# Normalizar a coluna 'y' entre 0 e 1
+scaler = MinMaxScaler()
+data['y'] = scaler.fit_transform(data[['y']])
 
+# Filtrar para manter apenas as linhas onde 'wconfid' é igual a 1, 2 e 3
+filtered_data_config_1 = data[data['wconfid'] == 1]
+filtered_data_config_2 = data[data['wconfid'] == 2]
+filtered_data_config_3 = data[data['wconfid'] == 3]
 
-plt.figure(2)
-plt.subplot(211)
-plt.plot(dataset_config2['time'], dataset_config2['y'], label='Vibração y')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('y')
-plt.title('Configuração vizinha (2)')
-plt.grid()
-plt.subplot(212)
-plt.plot(dataset_config2['time'], dataset_config2['z'], 'y',label='Vibração z')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('z')
-plt.grid()
-plt.savefig('datasets/config2.png')
-plt.show()
+# Exportar os datasets filtrados para novos arquivos CSV
+filtered_data_config_1.to_csv('datasets/data/processed_teste_train_config_1_database.csv', index=False)
+filtered_data_config_2.to_csv('datasets/data/processed_validate_config_2_database.csv', index=False)
+filtered_data_config_3.to_csv('datasets/data/processed_validate_config_3_database.csv', index=False)
 
+# Criar uma coluna de timestamps simulados (por exemplo, a cada segundo)
+for dataset in [filtered_data_config_1, filtered_data_config_2, filtered_data_config_3]:
+    dataset['timestamp'] = pd.date_range(start='2024-01-01', periods=len(dataset), freq='S')
 
-plt.figure(3)
-plt.subplot(211)
-plt.plot(dataset_config3['time'], dataset_config3['y'], label='Vibração y')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('y')
-plt.title('Configuração oposta (3)')
-plt.grid()
-plt.subplot(212)
-plt.plot(dataset_config3['time'], dataset_config3['z'], 'y',label='Vibração z')
-plt.legend()
-plt.xlabel('Time')
-plt.ylabel('z')
-plt.grid()
-plt.savefig('datasets/config3.png')
-plt.show()
+# Criar e salvar gráficos como séries temporais
+datasets = {
+    'config_1': filtered_data_config_1,
+    'config_2': filtered_data_config_2,
+    'config_3': filtered_data_config_3
+}
 
+for config_name, dataset in datasets.items():
+    plt.figure(figsize=(10, 6))
+    plt.plot(dataset['timestamp'], dataset['y'], marker='o', linestyle='-', label='y Normalizado')
+    plt.title(f'Série Temporal - Configuração {config_name}')
+    plt.xlabel('Timestamp')
+    plt.ylabel('Valor Normalizado de y')
+    plt.grid()
+    plt.legend()
+    plt.savefig(f'datasets/images/plot_{config_name}.png')  # Salvar o gráfico
+    plt.close()  # Fechar a figura para liberar memória
 
-# # Plot do gráfico principal
-# plt.figure(figsize=(12, 7))
-# plt.plot(dataset_config1['y'], linewidth=2.5, color='teal')
-# plt.title('Schematic of Vibration Signal Transformation', fontsize=16, fontweight='bold')
-# plt.xlabel('Dataset Observations')
-# plt.ylabel('Dataset Amplitudes')
-
-# # Inserir subgráfico com sinal coletado
-# inset_ax1 = plt.axes([0.2, 0.7, 0.15, 0.15])  # [left, bottom, width, height]
-# inset_ax1.plot(dataset_config1['y'][100:200], color='black')
-# inset_ax1.set_title('Collected Signal', fontsize=10)
-# inset_ax1.set_xticks([])
-# inset_ax1.set_yticks([])
-
-# # Inserir subgráfico com sinal RMS
-# rms_amplitude = np.sqrt(np.mean(np.square(dataset_config1['y'][100:200])))
-# rms_signal = np.ones(100) * rms_amplitude
-
-# inset_ax2 = plt.axes([0.5, 0.4, 0.15, 0.15])  # [left, bottom, width, height]
-# inset_ax2.plot(rms_signal, color='teal')
-# inset_ax2.set_title('RMS Amplitude', fontsize=10)
-# inset_ax2.set_xticks([])
-# inset_ax2.set_yticks([])
-
-# # Exibir o gráfico
-# plt.show()
+print("Pré-processamento completo! Gráficos salvos como séries temporais com sucesso.")

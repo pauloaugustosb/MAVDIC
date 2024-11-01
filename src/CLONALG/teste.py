@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
-# Classe ajustada para incluir normalização e plotagem
+# Classe CLONALG para detecção de anomalias
 class ClonalgAnomalyDetection:
     def __init__(self, train_data, clone_factor, mutation_rate, num_generations, threshold):
-        # Inicializa dados de treino e parâmetros do algoritmo
         self.normal_data = train_data
         self.clone_factor = clone_factor
         self.mutation_rate = mutation_rate
@@ -14,21 +14,17 @@ class ClonalgAnomalyDetection:
         self.population_size = 50
         self.problem_size = train_data.shape[1]
         self.population = [self.random_solution() for _ in range(self.population_size)]
-        self.fitness_history = []  # Para armazenar o fitness ao longo das gerações
 
     def random_solution(self):
-        # Gera uma solução aleatória com base nos dados de treino
         min_vals = np.min(self.normal_data, axis=0)
         max_vals = np.max(self.normal_data, axis=0)
         return np.random.uniform(min_vals, max_vals)
 
     def fitness(self, solution):
-        # Calcula a menor distância entre uma solução e os dados de treino
         distances = np.linalg.norm(self.normal_data - solution, axis=1)
         return np.min(distances)
 
     def clone_and_mutate(self, solution):
-        # Clona e aplica mutação em uma solução
         clones = [solution.copy() for _ in range(self.clone_factor)]
         for clone in clones:
             mutation = np.random.uniform(-1, 1, size=self.problem_size) * self.mutation_rate
@@ -36,20 +32,34 @@ class ClonalgAnomalyDetection:
         return clones
 
     def select(self):
-        # Seleciona as melhores soluções
         self.population.sort(key=self.fitness)
         return self.population[:self.population_size]
 
     def detect_anomalies(self, test_data):
-        # Detecta anomalias e calcula a acurácia
-        anomalies = []
+        true_positive = false_positive = false_negative = true_negative = 0
+        is_anomaly_results = []
+
         for index, sample in enumerate(test_data):
-            if self.fitness(sample) > self.threshold:
-                anomalies.append((index, sample))
-        return anomalies
+            is_anomaly = self.fitness(sample) > self.threshold
+            is_anomaly_results.append(is_anomaly)
+            actual_is_anomaly = index >= len(test_data) - 5
+
+            if is_anomaly:
+                if actual_is_anomaly:
+                    true_positive += 1
+                else:
+                    false_positive += 1
+            else:
+                if actual_is_anomaly:
+                    false_negative += 1
+                else:
+                    true_negative += 1
+
+        accuracy = (true_positive + true_negative) / (true_positive + true_negative + false_positive + false_negative) * 100
+        return accuracy, is_anomaly_results
 
     def evolve(self):
-        # Executa o ciclo de clonagem e seleção
+        fitness_progress = []
         for generation in range(self.num_generations):
             new_population = []
             for solution in self.population:
@@ -58,49 +68,56 @@ class ClonalgAnomalyDetection:
 
             self.population = self.select()
             best_fitness = self.fitness(self.population[0])
-            self.fitness_history.append(best_fitness)
-            
-# Função para carregar os dados e normalizá-los
-def load_and_normalize_data(file_path, train_size):
-    data = pd.read_csv(file_path)
-    data = data[['y', 'z']].dropna().values  # Filtra as colunas 'y' e 'z'
-    train_data = data[:train_size]
-    test_data = data[train_size:]
-    return train_data, test_data
+            fitness_progress.append(best_fitness)
+            print(f"Geração {generation + 1}, Melhor fitness (menor distância): {best_fitness}")
+        
+        return fitness_progress
 
-# Exemplo de uso do arquivo fictício
-file_path = '/mnt/data/dataset_config_1.csv'  # Substituir com o caminho correto do dataset
-train_size = 21001
+def load_and_normalize_data_v2(data, train_size, columns):
+    data = data[columns]
+    scaler = MinMaxScaler()
+    normalized_data = scaler.fit_transform(data)
+    train_data = normalized_data[:train_size]
+    test_data = normalized_data[train_size:]
+    return train_data, test_data, scaler
 
-# Carrega e normaliza os dados
-train_data, test_data = load_and_normalize_data(file_path, train_size)
+# Carregando e ajustando o conjunto de dados
+file_path = 'C:/Users/paulo/OneDrive/Área de Trabalho/Faculdade/TCC/MAVDIC/datasets/processed_first_database.csv'
+data = pd.read_csv(file_path)
+columns_of_interest = ['y']
+new_train_size = 40000
 
-# Configura parâmetros
-clone_factor = 100
-mutation_rate = 0.05
-num_generations = 20
+train_data_reduced, test_data, scaler = load_and_normalize_data_v2(data, new_train_size, columns_of_interest)
+
+# Parâmetros CLONALG
+clone_factor = 10
+mutation_rate = 0.1
+num_generations = 50
 threshold = 0.5
 
-# Inicializa o modelo
-clonalg = ClonalgAnomalyDetection(train_data, clone_factor, mutation_rate, num_generations, threshold)
-clonalg.evolve()
-anomalies = clonalg.detect_anomalies(test_data)
+clonalg_reduced = ClonalgAnomalyDetection(train_data_reduced, clone_factor, mutation_rate, num_generations, threshold)
+fitness_progress_reduced = clonalg_reduced.evolve()
 
-# Plotagem dos dados 'y' vs 'z'
+# Detectando anomalias e calculando a acurácia
+accuracy_reduced, is_anomaly_results_reduced = clonalg_reduced.detect_anomalies(test_data)
+print(f"Acurácia do modelo com conjunto reduzido: {accuracy_reduced:.2f}%")
+
+# Transformação Fourier para suavizar a série temporal
+fourier_transformed_data = np.fft.fft(test_data.ravel())
+frequencies = np.fft.fftfreq(len(fourier_transformed_data))
+# Mantendo apenas frequências principais para suavizar
+threshold_frequency = 0.1
+fourier_transformed_data[np.abs(frequencies) > threshold_frequency] = 0
+smoothed_test_data = np.fft.ifft(fourier_transformed_data).real
+
+# Visualizando a série temporal suavizada e anomalias detectadas
 plt.figure(figsize=(12, 6))
-plt.scatter(train_data[:, 0], train_data[:, 1], label='Normal Data', alpha=0.5, color='blue')
-plt.scatter([a[1][0] for a in anomalies], [a[1][1] for a in anomalies], label='Anomalies', color='red', marker='x')
-plt.xlabel("Eixo Y")
-plt.ylabel("Eixo Z")
-plt.title("Visualização de Dados Normal e Anomalias (Y vs Z)")
+plt.plot(smoothed_test_data, label='Dados de Teste Suavizados (Fourier)', color='blue')
+plt.scatter(np.arange(len(smoothed_test_data))[is_anomaly_results_reduced], smoothed_test_data[is_anomaly_results_reduced],
+            color='red', marker='x', label='Anomalias Detectadas')
+plt.xlabel('Amostra')
+plt.ylabel('Valor Normalizado Suavizado')
 plt.legend()
-
-# Plotagem do progresso do fitness durante o treinamento
-plt.figure(figsize=(12, 6))
-plt.plot(clonalg.fitness_history, label='Fitness do Melhor Individuo')
-plt.xlabel("Gerações")
-plt.ylabel("Fitness (Menor Distância)")
-plt.title("Evolução do Fitness ao Longo das Gerações")
-plt.legend()
-
+plt.title('Detecção de Anomalias com CLONALG (Transformação Fourier)')
+plt.grid(True)
 plt.show()
