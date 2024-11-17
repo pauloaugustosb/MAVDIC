@@ -13,28 +13,33 @@ data = pd.read_csv(file_path)
 train_data, temp_data = train_test_split(data, test_size=0.4, random_state=42)
 val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=42)
 
-# Funções de pertinência fuzzy
-def trapmf(x, a, b, c, d):
-    """ Função de pertinência trapezoidal """
-    return np.maximum(0, np.minimum((x - a) / (b - a), np.minimum(1, (d - x) / (d - c))))
-
+# Funções de pertinência fuzzy para y
 def gaussmf(x, c, sigma):
     """ Função de pertinência gaussiana """
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
 
-# Sistema fuzzy: definição de pertinência inicial
+# Sistema fuzzy: definição de pertinência inicial com categorias para pctid
 def fuzzy_system(pctid, y, params):
-    # Funções de pertinência de pctid
-    low_pctid = trapmf(pctid, *params[0:4])
-    medium_pctid = trapmf(pctid, *params[4:8])
-    high_pctid = trapmf(pctid, *params[8:12])
+    # Categorização de pctid em "baixo", "médio" e "alto"
+    if 20 <= pctid <= 40:
+        low_pctid = 1
+        medium_pctid = 0
+        high_pctid = 0
+    elif 40 < pctid <= 60:
+        low_pctid = 0
+        medium_pctid = 1
+        high_pctid = 0
+    elif 60 < pctid <= 100:
+        low_pctid = 0
+        medium_pctid = 0
+        high_pctid = 1
 
     # Funções de pertinência de y
-    normal_y = gaussmf(y, params[12], params[13])
-    deviating_y = gaussmf(y, params[14], params[15])
-    anomalous_y = trapmf(y, *params[16:20])
+    normal_y = gaussmf(y, params[0], params[1])
+    deviating_y = gaussmf(y, params[2], params[3])
+    anomalous_y = gaussmf(y, params[4], params[5])
 
-    # Regras fuzzy
+    # Regras fuzzy usando categorias de pctid
     low_anomaly = np.fmin(low_pctid, normal_y)
     medium_anomaly = np.fmin(medium_pctid, deviating_y)
     high_anomaly = np.fmin(high_pctid, anomalous_y)
@@ -45,9 +50,9 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Algoritmo Genético com monitoramento de métricas
-def genetic_algorithm(train_data, val_data, pop_size=20, generations=10):  # Aumentado para 10 gerações
+def genetic_algorithm(train_data, val_data, pop_size=20, generations=10):
     # Inicializar população com valores aleatórios
-    population = [np.random.uniform(0, 1, 20) for _ in range(pop_size)]
+    population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_mae_history, val_mae_history = [], []
 
     def fitness(individual, dataset):
@@ -102,6 +107,10 @@ f1 = f1_score(np.round(test_data['y']), np.round(predictions))
 binary_predictions = np.where(np.array(predictions) >= 0.5, 1, 0)
 binary_real = np.where(test_data['y'].values >= 0.5, 1, 0)
 accuracy = accuracy_score(binary_real, binary_predictions)
+
+# Exibir a perda (MAE) final
+loss = mae
+print(f"Loss (MAE) no conjunto de teste: {loss}")
 
 # Plotando o histórico de MAE durante o treinamento e validação
 plt.figure(figsize=(12, 6))
