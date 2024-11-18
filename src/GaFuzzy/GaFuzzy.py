@@ -5,18 +5,39 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, f
 import random
 import matplotlib.pyplot as plt
 
+# Definir a semente aleatória para reprodutibilidade
+np.random.seed(42)
+random.seed(42)
+
 # Carregar o dataset
 file_path = 'datasets/data/processed_teste_train_config_1_database.csv'
 data = pd.read_csv(file_path)
 
 # Dividir o conjunto de dados em treino, validação e teste
-train_data, temp_data = train_test_split(data, test_size=0.4, random_state=42)
-val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=42)
+train_data, temp_data = train_test_split(data, test_size=0.2, random_state=42)
+val_data, test_data = train_test_split(train_data, test_size=0.2, random_state=42)
 
-# Funções de pertinência fuzzy para y
-def gaussmf(x, c, sigma):
-    """ Função de pertinência gaussiana """
+# Funções de pertinência fuzzy para y com gradiente descendente
+def gaussmf(x, c, sigma, epsilon=1e-6):
+    """ Função de pertinência gaussiana com limite inferior para sigma """
+    sigma = max(sigma, epsilon)  # Assegurar que sigma nunca seja zero
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
+
+# Gradiente descendente para ajustar os parâmetros da gaussiana
+def gradient_descent_gaussian(y, c, sigma, learning_rate=0.01, epochs=100):
+    for epoch in range(epochs):
+        # Calcular gradiente de c e sigma
+        grad_c = -((y - c) / (sigma ** 2)) * gaussmf(y, c, sigma)
+        grad_sigma = ((y - c) ** 2 / (sigma ** 3)) * gaussmf(y, c, sigma)
+        
+        # Atualizar os parâmetros
+        c -= learning_rate * grad_c.mean()
+        sigma -= learning_rate * grad_sigma.mean()
+        
+        # Assegurar que sigma não se torne negativo
+        sigma = max(sigma, 1e-6)
+    
+    return c, sigma
 
 # Sistema fuzzy: definição de pertinência inicial com categorias para pctid
 def fuzzy_system(pctid, y, params):
@@ -50,7 +71,7 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Algoritmo Genético com monitoramento de métricas
-def genetic_algorithm(train_data, val_data, pop_size=20, generations=10):
+def genetic_algorithm(train_data, val_data, pop_size=20, generations=50):
     # Inicializar população com valores aleatórios
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_mae_history, val_mae_history = [], []
@@ -76,7 +97,7 @@ def genetic_algorithm(train_data, val_data, pop_size=20, generations=10):
         # Selecionar a melhor metade para nova geração
         selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
 
-        # Crossover e mutação
+        # Crossover e mutação com ponto de corte aleatório
         new_population = selected.copy()
         while len(new_population) < pop_size:
             parent1, parent2 = random.sample(selected, 2)
