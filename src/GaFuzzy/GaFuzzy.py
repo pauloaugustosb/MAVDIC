@@ -124,7 +124,7 @@ plt.xlabel('Geração')
 plt.ylabel('MAE')
 plt.title('Desempenho do Algoritmo Genético ao Longo das Gerações')
 plt.legend()
-mae_image_path = 'src/GaFuzzy/images/75_MAE.png'
+mae_image_path = 'src/GaFuzzy/images/100-50pop.png'
 plt.savefig(mae_image_path)
 
 # Plotar as previsões vs valores reais para o conjunto de teste
@@ -135,7 +135,7 @@ plt.xlabel('Amostras')
 plt.ylabel('Anomalia (y)')
 plt.title('Comparação entre Valores Reais e Previsões no Conjunto de Teste')
 plt.legend()
-plt.savefig('src/GaFuzzy/images/75_prev.png')
+plt.savefig('src/GaFuzzy/images/100-50pop.png')
 
 # Exibir as métricas finais
 print("Desempenho no conjunto de teste:")
