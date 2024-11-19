@@ -65,7 +65,7 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Algoritmo Genético com monitoramento de métricas e tqdm
-def genetic_algorithm(train_data, val_data, pop_size=20, generations=75):
+def genetic_algorithm(train_data, val_data, pop_size=20, generations=100):
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_mae_history, val_mae_history = [], []
 
