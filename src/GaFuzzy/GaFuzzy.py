@@ -32,7 +32,7 @@ def gaussmf(x, c, sigma, epsilon=1e-6):
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
 
 # Gradiente descendente para ajustar os parâmetros da gaussiana
-def gradient_descent_gaussian(y, c, sigma, learning_rate=0.01, epochs=100):
+def gradient_descent_gaussian(y, c, sigma, learning_rate=0.01, epochs=256):
     for epoch in range(epochs):
         grad_c = -((y - c) / (sigma ** 2)) * gaussmf(y, c, sigma)
         grad_sigma = ((y - c) ** 2 / (sigma ** 3)) * gaussmf(y, c, sigma)
