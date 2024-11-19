@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, f1_score, accuracy_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, f1_score, accuracy_score
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import requests
+import tensorflow as tf  # Importar TensorFlow para a nova função de R2
 
 # Definir a semente aleatória para reprodutibilidade
 np.random.seed(42)
@@ -18,6 +19,12 @@ data = pd.read_csv(file_path)
 # Dividir o conjunto de dados em treino, validação e teste
 train_data, temp_data = train_test_split(data, test_size=0.2, random_state=42)
 val_data, test_data = train_test_split(train_data, test_size=0.2, random_state=42)
+
+# Função R2 personalizada usando TensorFlow
+def r2_score(y_true, y_pred):
+    ss_res = tf.reduce_sum(tf.square(y_true - y_pred))
+    ss_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
+    return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())
 
 # Funções de pertinência fuzzy para y com gradiente descendente
 def gaussmf(x, c, sigma, epsilon=1e-6):
@@ -40,17 +47,11 @@ def gradient_descent_gaussian(y, c, sigma, learning_rate=0.01, epochs=100):
 # Sistema fuzzy: definição de pertinência inicial com categorias para pctid
 def fuzzy_system(pctid, y, params):
     if 20 <= pctid <= 40:
-        low_pctid = 1
-        medium_pctid = 0
-        high_pctid = 0
+        low_pctid, medium_pctid, high_pctid = 1, 0, 0
     elif 40 < pctid <= 60:
-        low_pctid = 0
-        medium_pctid = 1
-        high_pctid = 0
+        low_pctid, medium_pctid, high_pctid = 0, 1, 0
     elif 60 < pctid <= 100:
-        low_pctid = 0
-        medium_pctid = 0
-        high_pctid = 1
+        low_pctid, medium_pctid, high_pctid = 0, 0, 1
 
     normal_y = gaussmf(y, params[0], params[1])
     deviating_y = gaussmf(y, params[2], params[3])
@@ -65,7 +66,7 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Algoritmo Genético com monitoramento de métricas e tqdm
-def genetic_algorithm(train_data, val_data, pop_size=20, generations=100):
+def genetic_algorithm(train_data, val_data, pop_size=50, generations=100):
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_mae_history, val_mae_history = [], []
 
@@ -108,7 +109,7 @@ predictions = [fuzzy_system(row['pctid'], row['y'], best_params) for _, row in t
 # Calcular métricas finais
 mae = mean_absolute_error(test_data['y'], predictions)
 mse = mean_squared_error(test_data['y'], predictions)
-r2 = r2_score(test_data['y'], predictions)
+r2 = r2_score(tf.constant(test_data['y'].values, dtype=tf.float32), tf.constant(predictions, dtype=tf.float32)).numpy()
 f1 = f1_score(np.round(test_data['y']), np.round(predictions))
 
 binary_predictions = np.where(np.array(predictions) >= 0.5, 1, 0)
@@ -144,6 +145,9 @@ print(f"R2 Score: {r2}")
 print(f"F1 Score: {f1}")
 print(f"Acurácia: {accuracy}")
 
+
+
+
 '''''''''''''''''''''''''''
 Telegram
 '''''''''''''''''''''''''''
@@ -166,6 +170,7 @@ def send_telegram_image(image_path):
         files = {'photo': image_file}
         response = requests.post(url, data=data, files=files)
     return response.json()
+
 
 # Enviar a mensagem com as métricas e a imagem do MAE
 metrics_message = (
