@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, f1_score, accuracy_score
 import random
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Definir a semente aleatória para reprodutibilidade
 np.random.seed(42)
@@ -70,7 +71,7 @@ def fuzzy_system(pctid, y, params):
                      (np.sum(low_anomaly) + np.sum(medium_anomaly) + np.sum(high_anomaly) + 1e-6))
     return anomaly_score
 
-# Algoritmo Genético com monitoramento de métricas
+# Algoritmo Genético com monitoramento de métricas e tqdm
 def genetic_algorithm(train_data, val_data, pop_size=20, generations=50):
     # Inicializar população com valores aleatórios
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
@@ -82,8 +83,8 @@ def genetic_algorithm(train_data, val_data, pop_size=20, generations=50):
         mae = mean_absolute_error(dataset['y'], predictions)
         return mae
 
-    # GA principal
-    for generation in range(generations):
+    # GA principal com tqdm para exibir o progresso das gerações
+    for generation in tqdm(range(generations), desc="Gerações", leave=True):
         # Calcular fitness para treino e validação
         train_scores = [(fitness(ind, train_data), ind) for ind in population]
         val_scores = [(fitness(ind, val_data), ind) for ind in population]
