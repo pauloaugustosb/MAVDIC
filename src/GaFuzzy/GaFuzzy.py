@@ -66,7 +66,7 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Algoritmo Genético com monitoramento de métricas e tqdm
-def genetic_algorithm(train_data, val_data, pop_size=50, generations=100):
+def genetic_algorithm(train_data, val_data, pop_size=50, generations=150):
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_mae_history, val_mae_history = [], []
 
@@ -124,8 +124,8 @@ plt.xlabel('Geração')
 plt.ylabel('MAE')
 plt.title('Desempenho do Algoritmo Genético ao Longo das Gerações')
 plt.legend()
-mae_image_path = 'src/GaFuzzy/images/100-50pop.png'
-plt.savefig(mae_image_path)
+mae_image_path = 'src/GaFuzzy/images/150-50pop.png'
+plt.savefig('src/GaFuzzy/images/150-50popMAE.png')
 
 # Plotar as previsões vs valores reais para o conjunto de teste
 plt.figure(figsize=(12, 6))
@@ -135,7 +135,7 @@ plt.xlabel('Amostras')
 plt.ylabel('Anomalia (y)')
 plt.title('Comparação entre Valores Reais e Previsões no Conjunto de Teste')
 plt.legend()
-plt.savefig('src/GaFuzzy/images/100-50pop.png')
+plt.savefig('src/GaFuzzy/images/150-50pop.png')
 
 # Exibir as métricas finais
 print("Desempenho no conjunto de teste:")
