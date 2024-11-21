@@ -1,12 +1,18 @@
 import numpy as np
 import pandas as pd
+import pickle
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, f1_score, accuracy_score
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import tensorflow as tf
+import os
 import requests
-import tensorflow as tf  # Importar TensorFlow para a nova função de R2
+
+# Configuração do Telegram
+TELEGRAM_TOKEN = '7934109114:AAEQV9OiDgTJ7tXR7yHlL6GyUpFVqw53ZLo'
+CHAT_ID = '1120442358'
 
 # Definir a semente aleatória para reprodutibilidade
 np.random.seed(42)
@@ -18,7 +24,7 @@ data = pd.read_csv(file_path)
 
 # Dividir o conjunto de dados em treino, validação e teste
 train_data, temp_data = train_test_split(data, test_size=0.2, random_state=42)
-val_data, test_data = train_test_split(train_data, test_size=0.2, random_state=42)
+val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=42)
 
 # Função R2 personalizada usando TensorFlow
 def r2_score(y_true, y_pred):
@@ -26,25 +32,12 @@ def r2_score(y_true, y_pred):
     ss_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
     return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())
 
-# Funções de pertinência fuzzy para y com gradiente descendente
+# Funções de pertinência fuzzy
 def gaussmf(x, c, sigma, epsilon=1e-6):
     sigma = max(sigma, epsilon)
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
 
-# Gradiente descendente para ajustar os parâmetros da gaussiana
-def gradient_descent_gaussian(y, c, sigma, learning_rate=0.01, epochs=256):
-    for epoch in range(epochs):
-        grad_c = -((y - c) / (sigma ** 2)) * gaussmf(y, c, sigma)
-        grad_sigma = ((y - c) ** 2 / (sigma ** 3)) * gaussmf(y, c, sigma)
-        
-        c -= learning_rate * grad_c.mean()
-        sigma -= learning_rate * grad_sigma.mean()
-        
-        sigma = max(sigma, 1e-6)
-    
-    return c, sigma
-
-# Sistema fuzzy: definição de pertinência inicial com categorias para pctid
+# Sistema fuzzy
 def fuzzy_system(pctid, y, params):
     if 20 <= pctid <= 40:
         low_pctid, medium_pctid, high_pctid = 1, 0, 0
@@ -65,17 +58,56 @@ def fuzzy_system(pctid, y, params):
                      (np.sum(low_anomaly) + np.sum(medium_anomaly) + np.sum(high_anomaly) + 1e-6))
     return anomaly_score
 
-# Algoritmo Genético com monitoramento de métricas e tqdm
-def genetic_algorithm(train_data, val_data, pop_size=50, generations=150):
-    population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
-    train_mae_history, val_mae_history = [], []
+# Função para salvar checkpoints
+def save_checkpoint(generation, population, train_mae_history, val_mae_history, file_path='src/GaFuzzy/checkpoint.pkl'):
+    checkpoint = {
+        'generation': generation,
+        'population': population,
+        'train_mae_history': train_mae_history,
+        'val_mae_history': val_mae_history
+    }
+    with open(file_path, 'wb') as f:
+        pickle.dump(checkpoint, f)
+
+# Função para carregar checkpoints
+def load_checkpoint(file_path='src/GaFuzzy/checkpoint.pkl'):
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+    return None
+
+# Função para enviar mensagem no Telegram
+def send_telegram_message(message):
+    try:
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+        data = {'chat_id': CHAT_ID, 'text': message}
+        response = requests.post(url, data=data)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Erro ao enviar mensagem: {e}")
+
+# Algoritmo Genético com notificações de checkpoints e métricas finais
+def genetic_algorithm(train_data, val_data, pop_size=10, generations=4, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
+    checkpoint = load_checkpoint(checkpoint_path)
+    
+    if checkpoint:
+        print("Carregando checkpoint...")
+        start_generation = checkpoint['generation']
+        population = checkpoint['population']
+        train_mae_history = checkpoint['train_mae_history']
+        val_mae_history = checkpoint['val_mae_history']
+    else:
+        print("Iniciando novo treinamento...")
+        start_generation = 0
+        population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
+        train_mae_history, val_mae_history = [], []
 
     def fitness(individual, dataset):
         predictions = [fuzzy_system(row['pctid'], row['y'], individual) for _, row in dataset.iterrows()]
         mae = mean_absolute_error(dataset['y'], predictions)
         return mae
 
-    for generation in tqdm(range(generations), desc="Gerações", leave=True):
+    for generation in tqdm(range(start_generation, generations), desc="Gerações", leave=True):
         train_scores = [(fitness(ind, train_data), ind) for ind in population]
         val_scores = [(fitness(ind, val_data), ind) for ind in population]
         
@@ -84,8 +116,13 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=150):
         train_mae_history.append(best_train_mae)
         val_mae_history.append(best_val_mae)
 
-        selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
+        # Notificar checkpoints
+        if generation > 0 and generation % 2 == 0:
+            save_checkpoint(generation, population, train_mae_history, val_mae_history, checkpoint_path)
+            send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
 
+        # Evolução genética
+        selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
         new_population = selected.copy()
         while len(new_population) < pop_size:
             parent1, parent2 = random.sample(selected, 2)
@@ -94,92 +131,44 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=150):
             if random.random() < 0.1:
                 child[random.randint(0, len(child) - 1)] += random.uniform(-0.1, 0.1)
             new_population.append(np.clip(child, 0, 1))
-        
         population = new_population
 
-    best_individual = min(population, key=lambda ind: fitness(ind, val_data))
-    return best_individual, train_mae_history, val_mae_history
+    # Calcular métricas finais
+    best_params = min(population, key=lambda ind: fitness(ind, val_data))
+    predictions = [fuzzy_system(row['pctid'], row['y'], best_params) for _, row in val_data.iterrows()]
+    mse = mean_squared_error(val_data['y'], predictions)
+    r2 = r2_score(tf.constant(val_data['y'].values, dtype=tf.float32), tf.constant(predictions, dtype=tf.float32)).numpy()
+    f1 = f1_score(np.round(val_data['y']), np.round(predictions))
+    accuracy = accuracy_score(np.round(val_data['y']), np.round(predictions))
 
-# Treinamento e obtenção do histórico de métricas
+    # Mensagem e gráfico final
+    final_message = (
+        f"✅ Treinamento Concluído!\n\n"
+        f"📊 Resultados Finais:\n"
+        f"🔹 MAE Treinamento: {best_train_mae:.4f}\n"
+        f"🔹 MAE Validação: {best_val_mae:.4f}\n"
+        f"🔹 MSE: {mse:.4f}\n"
+        f"🔹 R²: {r2:.4f}\n"
+        f"🔹 F1 Score: {f1:.4f}\n"
+        f"🔹 Acurácia: {accuracy:.4f}"
+    )
+    send_telegram_message(final_message)
+
+    final_plot_path = 'src/GaFuzzy/images/final_training.png'
+    os.makedirs(os.path.dirname(final_plot_path), exist_ok=True)
+    plt.figure(figsize=(12, 6))
+    plt.plot(train_mae_history, label='MAE - Treinamento', marker='o')
+    plt.plot(val_mae_history, label='MAE - Validação', marker='x')
+    plt.xlabel('Geração')
+    plt.ylabel('MAE')
+    plt.title('Desempenho do Algoritmo Genético ao Longo das Gerações')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(final_plot_path)
+    plt.close()
+
+    send_telegram_message("📊 Gráfico final gerado. Confira no volume montado.")
+    return best_params, train_mae_history, val_mae_history
+
+# Executar o treinamento
 best_params, train_mae_history, val_mae_history = genetic_algorithm(train_data, val_data)
-
-# Avaliar o modelo nos dados de teste
-predictions = [fuzzy_system(row['pctid'], row['y'], best_params) for _, row in test_data.iterrows()]
-
-# Calcular métricas finais
-mae = mean_absolute_error(test_data['y'], predictions)
-mse = mean_squared_error(test_data['y'], predictions)
-r2 = r2_score(tf.constant(test_data['y'].values, dtype=tf.float32), tf.constant(predictions, dtype=tf.float32)).numpy()
-f1 = f1_score(np.round(test_data['y']), np.round(predictions))
-
-binary_predictions = np.where(np.array(predictions) >= 0.5, 1, 0)
-binary_real = np.where(test_data['y'].values >= 0.5, 1, 0)
-accuracy = accuracy_score(binary_real, binary_predictions)
-
-# Plotando o histórico de MAE durante o treinamento e validação
-plt.figure(figsize=(12, 6))
-plt.plot(train_mae_history, label='MAE - Treinamento')
-plt.plot(val_mae_history, label='MAE - Validação')
-plt.xlabel('Geração')
-plt.ylabel('MAE')
-plt.title('Desempenho do Algoritmo Genético ao Longo das Gerações')
-plt.legend()
-mae_image_path = 'src/GaFuzzy/images/150-50pop.png'
-plt.savefig('src/GaFuzzy/images/150-50popMAE.png')
-
-# Plotar as previsões vs valores reais para o conjunto de teste
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['y'].values, label='Valores Reais')
-plt.plot(predictions, label='Previsões do Modelo')
-plt.xlabel('Amostras')
-plt.ylabel('Anomalia (y)')
-plt.title('Comparação entre Valores Reais e Previsões no Conjunto de Teste')
-plt.legend()
-plt.savefig('src/GaFuzzy/images/150-50pop.png')
-
-# Exibir as métricas finais
-print("Desempenho no conjunto de teste:")
-print(f"MAE: {mae}")
-print(f"MSE: {mse}")
-print(f"R2 Score: {r2}")
-print(f"F1 Score: {f1}")
-print(f"Acurácia: {accuracy}")
-
-
-
-
-'''''''''''''''''''''''''''
-Telegram
-'''''''''''''''''''''''''''
-# Configurações do Telegram
-TELEGRAM_TOKEN = '7934109114:AAEQV9OiDgTJ7tXR7yHlL6GyUpFVqw53ZLo'
-CHAT_ID = '1120442358'
-
-# Função para enviar uma mensagem de texto
-def send_telegram_message(message):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
-    data = {'chat_id': CHAT_ID, 'text': message}
-    response = requests.post(url, data=data)
-    return response.json()
-
-# Função para enviar uma imagem
-def send_telegram_image(image_path):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
-    with open(image_path, 'rb') as image_file:
-        data = {'chat_id': CHAT_ID}
-        files = {'photo': image_file}
-        response = requests.post(url, data=data, files=files)
-    return response.json()
-
-
-# Enviar a mensagem com as métricas e a imagem do MAE
-metrics_message = (
-    "Treinamento concluído com sucesso! 🏆\n"
-    f"MAE: {mae}\n"
-    f"MSE: {mse}\n"
-    f"R2 Score: {r2}\n"
-    f"F1 Score: {f1}\n"
-    f"Acurácia: {accuracy}"
-)
-send_telegram_message(metrics_message)
-send_telegram_image(mae_image_path)
