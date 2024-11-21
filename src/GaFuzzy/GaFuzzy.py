@@ -86,8 +86,20 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Erro ao enviar mensagem: {e}")
 
-# Algoritmo Genético com notificações de checkpoints e métricas finais
-def genetic_algorithm(train_data, val_data, pop_size=10, generations=5, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
+# Função para enviar imagem para o Telegram
+def send_telegram_image(image_path):
+    try:
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
+        with open(image_path, 'rb') as image_file:
+            data = {'chat_id': CHAT_ID}
+            files = {'photo': image_file}
+            response = requests.post(url, data=data, files=files)
+            response.raise_for_status()
+    except Exception as e:
+        print(f"Erro ao enviar imagem: {e}")
+
+# Algoritmo Genético com notificacoes de checkpoints e métricas finais
+def genetic_algorithm(train_data, val_data, pop_size=50, generations=201, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
     checkpoint = load_checkpoint(checkpoint_path)
     
     if checkpoint:
@@ -117,7 +129,7 @@ def genetic_algorithm(train_data, val_data, pop_size=10, generations=5, checkpoi
         val_mae_history.append(best_val_mae)
 
         # Notificar checkpoints
-        if generation > 0 and generation % 2 == 0:
+        if generation > 0 and generation % 25 == 0:
             save_checkpoint(generation, population, train_mae_history, val_mae_history, checkpoint_path)
             send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
 
@@ -166,8 +178,21 @@ def genetic_algorithm(train_data, val_data, pop_size=10, generations=5, checkpoi
     plt.grid(True)
     plt.savefig(final_plot_path)
     plt.close()
+    send_telegram_image(final_plot_path)
 
-    send_telegram_message("📊 Gráfico final gerado. Confira no volume montado.")
+    # Gráfico comparando valores reais e previstos
+    comparison_plot_path = 'src/GaFuzzy/images/comparison_real_vs_pred.png'
+    plt.figure(figsize=(12, 6))
+    plt.plot(val_data['y'].values, label='Valores Reais', linestyle='-', marker='')
+    plt.plot(predictions, label='Valores Previstos', linestyle='--', marker='')
+    plt.xlabel('Amostras')
+    plt.ylabel('Valores')
+    plt.title('Comparação entre Valores Reais e Previstos no Conjunto de Validação')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(comparison_plot_path)
+    plt.close()
+
     return best_params, train_mae_history, val_mae_history
 
 # Executar o treinamento
