@@ -87,7 +87,7 @@ def send_telegram_message(message):
         print(f"Erro ao enviar mensagem: {e}")
 
 # Algoritmo Genético com notificações de checkpoints e métricas finais
-def genetic_algorithm(train_data, val_data, pop_size=10, generations=4, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
+def genetic_algorithm(train_data, val_data, pop_size=10, generations=5, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
     checkpoint = load_checkpoint(checkpoint_path)
     
     if checkpoint:
