@@ -1,0 +1,11 @@
+version: "2.29.1"  # Versão do Docker Compose
+
+services:
+  mavdic:  # Nome do serviço
+    build:
+      context: .  # Diretório atual onde está o Dockerfile
+    volumes:
+      - ./datasets:/app/datasets  # Mapeia a pasta datasets para o container
+      - ./src:/app/src            # Mapeia a pasta src para o container
+    working_dir: /app  # Diretório de trabalho no container
+    command: python src/GaFuzzy/GaFuzzy.py  # Comando para rodar o código principal (ajuste se necessário)
