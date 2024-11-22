@@ -135,13 +135,16 @@ def genetic_algorithm(train_data, val_data, pop_size=100, generations=301, check
             send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
 
         # Evolução genética
-        selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
+        selection_rate = 0.2  # Selecionar 30% da população
+        selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:int(pop_size * selection_rate)]]
+
         new_population = selected.copy()
         while len(new_population) < pop_size:
             parent1, parent2 = random.sample(selected, 2)
             cross_point = random.randint(1, len(parent1) - 1)
             child = np.concatenate((parent1[:cross_point], parent2[cross_point:]))
-            if random.random() < 0.1:
+            #   Taxa de mutação
+            if random.random() < 0.3:
                 child[random.randint(0, len(child) - 1)] += random.uniform(-0.1, 0.1)
             new_population.append(np.clip(child, 0, 1))
         population = new_population
