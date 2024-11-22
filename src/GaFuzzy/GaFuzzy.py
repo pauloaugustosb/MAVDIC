@@ -99,9 +99,10 @@ def send_telegram_image(image_path):
         print(f"Erro ao enviar imagem: {e}")
 
 # Algoritmo Genético com notificacoes de checkpoints e métricas finais
-def genetic_algorithm(train_data, val_data, pop_size=50, generations=201, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
+def genetic_algorithm(train_data, val_data, pop_size=100, generations=301, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
     checkpoint = load_checkpoint(checkpoint_path)
     
+    #   Conferência do checkpoint
     if checkpoint:
         print("Carregando checkpoint...")
         start_generation = checkpoint['generation']
