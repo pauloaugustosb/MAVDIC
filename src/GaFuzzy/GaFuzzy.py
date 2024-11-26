@@ -48,7 +48,7 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Função para mutação coordenada
-def coordinated_mutation(individual, mutation_rate=0.2, epsilon=1e-6):
+def coordinated_mutation(individual, mutation_rate=0.1, epsilon=1e-6):
     for i in range(0, len(individual), 2):  # Assume que C e S são pares consecutivos
         if random.random() < mutation_rate:
             delta_c = random.uniform(-0.1, 0.1)
@@ -57,126 +57,105 @@ def coordinated_mutation(individual, mutation_rate=0.2, epsilon=1e-6):
             individual[i + 1] = np.clip(individual[i + 1] + delta_s, epsilon, 1)  # Mutação no sigma (S)
     return individual
 
-# Função para salvar checkpoints por etapa
-def save_checkpoint(step, generation, population, mse_history, accuracy_history, f1_history, file_path='src/GaFuzzy/checkpoint_step_{}.pkl'):
-    checkpoint = {
-        'step': step,
-        'generation': generation,
-        'population': population,
-        'mse_history': mse_history,
-        'accuracy_history': accuracy_history,
-        'f1_history': f1_history,
-    }
-    with open(file_path.format(step), 'wb') as f:
-        pickle.dump(checkpoint, f)
-
-# Função para carregar checkpoints por etapa
-def load_checkpoint(step, file_path='src/GaFuzzy/checkpoint_step_{}.pkl'):
-    if os.path.exists(file_path.format(step)):
-        with open(file_path.format(step), 'rb') as f:
-            return pickle.load(f)
-    return None
-
-# Função para salvar gráficos
-def save_graph(history, ylabel, title, file_path):
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    plt.figure(figsize=(12, 6))
-    plt.plot(history, marker='o')
-    plt.xlabel('Geração')
-    plt.ylabel(ylabel)
-    plt.title(title)
-    plt.grid(True)
-    plt.savefig(file_path)
-    plt.close()
-
-# Carregar ou criar população inicial fixa
-def load_initial_population(file_path='src/GaFuzzy/initial_population.pkl', pop_size=50):
-    if os.path.exists(file_path):
-        with open(file_path, 'rb') as f:
-            return pickle.load(f)
-    else:
-        population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
-        with open(file_path, 'wb') as f:
-            pickle.dump(population, f)
-        return population
-
 # Algoritmo Genético
-def genetic_algorithm(train_data, val_data, step, generations, mutation_rate=0.2, pop_size=50):
-    checkpoint = load_checkpoint(step)
-    initial_population = load_initial_population()
-
-    if checkpoint:
-        print(f"Carregando checkpoint da etapa {step}...")
-        start_generation = checkpoint['generation']
-        population = checkpoint['population']
-        mse_history = checkpoint['mse_history']
-        accuracy_history = checkpoint['accuracy_history']
-        f1_history = checkpoint['f1_history']
-    else:
-        print(f"Iniciando novo treinamento na etapa {step}...")
-        start_generation = 0
-        population = initial_population
-        mse_history, accuracy_history, f1_history = [], [], []
+def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=10, mutation_rate=0.1, elitism_rate=0.1):
+    print("Iniciando treinamento...")
+    population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
+    mse_history_val, mse_history_test = [], []
+    accuracy_history_val, accuracy_history_test = [], []
 
     def fitness(individual, dataset):
         predictions = [fuzzy_system(row['pctid'], row['y'], individual) for _, row in dataset.iterrows()]
         mse = mean_squared_error(dataset['y'], predictions)
         accuracy = accuracy_score(np.round(dataset['y']), np.round(predictions))
-        f1 = f1_score(np.round(dataset['y']), np.round(predictions))
-        return mse, accuracy, f1
+        return mse, accuracy
 
-    for generation in tqdm(range(start_generation, start_generation + generations), desc=f"Gerações - Etapa {step}", leave=True):
-        scores = [fitness(ind, train_data) for ind in population]
-        mse_scores = [score[0] for score in scores]
-        accuracy_scores = [score[1] for score in scores]
-        f1_scores = [score[2] for score in scores]
+    for generation in tqdm(range(generations), desc="Gerações", leave=True):
+        train_scores = [fitness(ind, train_data) for ind in population]
+        val_scores = [fitness(ind, val_data) for ind in population]
+        test_scores = [fitness(ind, test_data) for ind in population]
 
         # Melhor desempenho atual
-        best_mse = min(mse_scores)
-        best_accuracy = max(accuracy_scores)
-        best_f1 = max(f1_scores)
-        mse_history.append(best_mse)
-        accuracy_history.append(best_accuracy)
-        f1_history.append(best_f1)
+        best_mse_val = min([score[0] for score in val_scores])
+        best_accuracy_val = max([score[1] for score in val_scores])
+        mse_history_val.append(best_mse_val)
+        accuracy_history_val.append(best_accuracy_val)
 
-        # Checkpoint
-        save_checkpoint(step, generation, population, mse_history, accuracy_history, f1_history)
+        best_mse_test = min([score[0] for score in test_scores])
+        best_accuracy_test = max([score[1] for score in test_scores])
+        mse_history_test.append(best_mse_test)
+        accuracy_history_test.append(best_accuracy_test)
 
-        # Seleção
-        top_half = sorted(zip(mse_scores, population), key=lambda x: x[0])[:pop_size // 2]
-        best_population = [ind for _, ind in top_half]
+        # Seleção elitista
+        elitism_count = int(elitism_rate * pop_size)
+        sorted_population = sorted(zip(train_scores, population), key=lambda x: x[0][0])
+        elite_individuals = [ind for _, ind in sorted_population[:elitism_count]]
 
-        # Crossover elitista
-        new_population = []
+        # Crossover entre melhores (excluindo elite)
+        best_individuals = [ind for _, ind in sorted_population[elitism_count:pop_size // 2]]
+        new_population = elite_individuals.copy()
+
         while len(new_population) < pop_size:
-            parent1, parent2 = random.sample(best_population, 2)
+            parent1, parent2 = random.sample(best_individuals, 2)
             split = len(parent1) // 2
             child = np.concatenate((parent1[:split], parent2[split:]))
-            new_population.append(coordinated_mutation(child, mutation_rate))
+            new_population.append(child)
 
-        # Mutação nos 50% piores
-        worst_half = sorted(zip(mse_scores, population), key=lambda x: x[0])[pop_size // 2:]
-        for _, ind in worst_half:
-            ind = coordinated_mutation(ind, mutation_rate)
+        # Aplicar mutação nos 50% piores
+        for ind in sorted_population[pop_size // 2:]:
+            mutated = coordinated_mutation(ind[1], mutation_rate)
+            new_population.append(mutated)
 
-        population = best_population + new_population[:pop_size // 2]
+        population = new_population[:pop_size]
 
-    return population, mse_history, accuracy_history, f1_history
+    # Gráficos finais
+    os.makedirs('src/GaFuzzy/images', exist_ok=True)
 
-# Execução do treinamento em etapas
-for step, generations in enumerate([10, 25, 50], start=1):
-    print(f"Treinamento - Etapa {step}: {generations} Gerações")
-    final_population, mse_history, accuracy_history, f1_history = genetic_algorithm(
-        train_data, val_data, step=step, generations=generations, pop_size=50, mutation_rate=0.2
-    )
+    # MSE vs Gerações
+    plt.figure(figsize=(12, 6))
+    plt.plot(mse_history_val, label='Validação', marker='o')
+    plt.plot(mse_history_test, label='Teste', marker='x')
+    plt.xlabel('Geração')
+    plt.ylabel('MSE')
+    plt.title('MSE vs Gerações')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('src/GaFuzzy/images/mse_vs_generations101.png')
+    plt.close()
 
-    # Salvar gráficos
-    save_graph(mse_history, 'MSE', f'MSE vs Gerações (Etapa {step})', f'src/GaFuzzy/images/mse_vs_generations_step{step}.png')
-    save_graph(accuracy_history, 'Accuracy', f'Accuracy vs Gerações (Etapa {step})', f'src/GaFuzzy/images/accuracy_vs_generations_step{step}.png')
-    # save_graph(f1_history, 'F1 Score', f'F1 Score vs Gerações (Etapa {step})', f'src/GaFuzzy/images/f1_vs_generations_step{step}.png')
+    # Accuracy vs Gerações
+    plt.figure(figsize=(12, 6))
+    plt.plot(accuracy_history_val, label='Validação', marker='o')
+    plt.plot(accuracy_history_test, label='Teste', marker='x')
+    plt.xlabel('Geração')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy vs Gerações')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('src/GaFuzzy/images/accuracy_vs_generations101.png')
+    plt.close()
 
-    # Imprimir métricas
-    print(f"Etapa {step} - Resultados:")
-    print(f"🔹 Melhor MSE: {mse_history[-1]:.4f}")
-    print(f"🔹 Melhor Accuracy: {accuracy_history[-1]:.4f}")
-    print(f"🔹 Melhor F1 Score: {f1_history[-1]:.4f}")
+    # Avaliação final nos conjuntos de validação e teste
+    best_individual = population[0]  # Presumindo que o melhor indivíduo é o primeiro
+    val_predictions = [fuzzy_system(row['pctid'], row['y'], best_individual) for _, row in val_data.iterrows()]
+    test_predictions = [fuzzy_system(row['pctid'], row['y'], best_individual) for _, row in test_data.iterrows()]
+
+    mse_val_final = mean_squared_error(val_data['y'], val_predictions)
+    f1_val = f1_score(np.round(val_data['y']), np.round(val_predictions))
+    accuracy_val_final = accuracy_score(np.round(val_data['y']), np.round(val_predictions))
+
+    mse_test_final = mean_squared_error(test_data['y'], test_predictions)
+    f1_test = f1_score(np.round(test_data['y']), np.round(test_predictions))
+    accuracy_test_final = accuracy_score(np.round(test_data['y']), np.round(test_predictions))
+
+    # Imprimir as métricas finais
+    print("\nMétricas no Conjunto de Validação:")
+    print(f"MSE: {mse_val_final:.4f}, F1 Score: {f1_val:.4f}, Accuracy: {accuracy_val_final:.4f}")
+
+    print("\nMétricas no Conjunto de Teste:")
+    print(f"MSE: {mse_test_final:.4f}, F1 Score: {f1_test:.4f}, Accuracy: {accuracy_test_final:.4f}")
+
+    return population[0], mse_history_val, mse_history_test, accuracy_history_val, accuracy_history_test
+
+# Executar o treinamento
+best_params, mse_val, mse_test, acc_val, acc_test = genetic_algorithm(train_data, val_data, test_data)
