@@ -57,21 +57,23 @@ def coordinated_mutation(individual, mutation_rate=0.2, epsilon=1e-6):
             individual[i + 1] = np.clip(individual[i + 1] + delta_s, epsilon, 1)  # Mutação no sigma (S)
     return individual
 
-# Função para salvar checkpoints
-def save_checkpoint(generation, population, mse_history, accuracy_history, file_path='src/GaFuzzy/checkpoint.pkl'):
+# Função para salvar checkpoints por etapa
+def save_checkpoint(step, generation, population, mse_history, accuracy_history, f1_history, file_path='src/GaFuzzy/checkpoint_step_{}.pkl'):
     checkpoint = {
+        'step': step,
         'generation': generation,
         'population': population,
         'mse_history': mse_history,
         'accuracy_history': accuracy_history,
+        'f1_history': f1_history,
     }
-    with open(file_path, 'wb') as f:
+    with open(file_path.format(step), 'wb') as f:
         pickle.dump(checkpoint, f)
 
-# Função para carregar checkpoints
-def load_checkpoint(file_path='src/GaFuzzy/checkpoint.pkl'):
-    if os.path.exists(file_path):
-        with open(file_path, 'rb') as f:
+# Função para carregar checkpoints por etapa
+def load_checkpoint(step, file_path='src/GaFuzzy/checkpoint_step_{}.pkl'):
+    if os.path.exists(file_path.format(step)):
+        with open(file_path.format(step), 'rb') as f:
             return pickle.load(f)
     return None
 
@@ -87,42 +89,58 @@ def save_graph(history, ylabel, title, file_path):
     plt.savefig(file_path)
     plt.close()
 
+# Carregar ou criar população inicial fixa
+def load_initial_population(file_path='src/GaFuzzy/initial_population.pkl', pop_size=50):
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+    else:
+        population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
+        with open(file_path, 'wb') as f:
+            pickle.dump(population, f)
+        return population
+
 # Algoritmo Genético
-def genetic_algorithm(train_data, val_data, pop_size=50, mutation_rate=0.2, generations=10, checkpoint_path='src/GaFuzzy/checkpoint.pkl'):
-    checkpoint = load_checkpoint(checkpoint_path)
+def genetic_algorithm(train_data, val_data, step, generations, mutation_rate=0.2, pop_size=50):
+    checkpoint = load_checkpoint(step)
+    initial_population = load_initial_population()
 
     if checkpoint:
-        print("Carregando checkpoint...")
+        print(f"Carregando checkpoint da etapa {step}...")
         start_generation = checkpoint['generation']
         population = checkpoint['population']
         mse_history = checkpoint['mse_history']
         accuracy_history = checkpoint['accuracy_history']
+        f1_history = checkpoint['f1_history']
     else:
-        print("Iniciando novo treinamento...")
+        print(f"Iniciando novo treinamento na etapa {step}...")
         start_generation = 0
-        population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
-        mse_history, accuracy_history = [], []
+        population = initial_population
+        mse_history, accuracy_history, f1_history = [], [], []
 
     def fitness(individual, dataset):
         predictions = [fuzzy_system(row['pctid'], row['y'], individual) for _, row in dataset.iterrows()]
         mse = mean_squared_error(dataset['y'], predictions)
         accuracy = accuracy_score(np.round(dataset['y']), np.round(predictions))
-        return mse, accuracy
+        f1 = f1_score(np.round(dataset['y']), np.round(predictions))
+        return mse, accuracy, f1
 
-    for generation in tqdm(range(start_generation, start_generation + generations), desc="Gerações", leave=True):
+    for generation in tqdm(range(start_generation, start_generation + generations), desc=f"Gerações - Etapa {step}", leave=True):
         scores = [fitness(ind, train_data) for ind in population]
         mse_scores = [score[0] for score in scores]
         accuracy_scores = [score[1] for score in scores]
+        f1_scores = [score[2] for score in scores]
 
         # Melhor desempenho atual
         best_mse = min(mse_scores)
         best_accuracy = max(accuracy_scores)
+        best_f1 = max(f1_scores)
         mse_history.append(best_mse)
         accuracy_history.append(best_accuracy)
+        f1_history.append(best_f1)
 
-        # Checkpoints
-        if generation > 0 and generation % 25 == 0:
-            save_checkpoint(generation, population, mse_history, accuracy_history, checkpoint_path)
+        # Checkpoint
+        save_checkpoint(step, generation, population, mse_history, accuracy_history, f1_history)
 
         # Seleção
         top_half = sorted(zip(mse_scores, population), key=lambda x: x[0])[:pop_size // 2]
@@ -143,20 +161,22 @@ def genetic_algorithm(train_data, val_data, pop_size=50, mutation_rate=0.2, gene
 
         population = best_population + new_population[:pop_size // 2]
 
-    return population, mse_history, accuracy_history
+    return population, mse_history, accuracy_history, f1_history
 
 # Execução do treinamento em etapas
 for step, generations in enumerate([10, 25, 50], start=1):
     print(f"Treinamento - Etapa {step}: {generations} Gerações")
-    final_population, mse_history, accuracy_history = genetic_algorithm(
-        train_data, val_data, pop_size=50, mutation_rate=0.2, generations=generations
+    final_population, mse_history, accuracy_history, f1_history = genetic_algorithm(
+        train_data, val_data, step=step, generations=generations, pop_size=50, mutation_rate=0.2
     )
 
     # Salvar gráficos
     save_graph(mse_history, 'MSE', f'MSE vs Gerações (Etapa {step})', f'src/GaFuzzy/images/mse_vs_generations_step{step}.png')
     save_graph(accuracy_history, 'Accuracy', f'Accuracy vs Gerações (Etapa {step})', f'src/GaFuzzy/images/accuracy_vs_generations_step{step}.png')
+    # save_graph(f1_history, 'F1 Score', f'F1 Score vs Gerações (Etapa {step})', f'src/GaFuzzy/images/f1_vs_generations_step{step}.png')
 
     # Imprimir métricas
     print(f"Etapa {step} - Resultados:")
     print(f"🔹 Melhor MSE: {mse_history[-1]:.4f}")
     print(f"🔹 Melhor Accuracy: {accuracy_history[-1]:.4f}")
+    print(f"🔹 Melhor F1 Score: {f1_history[-1]:.4f}")
