@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, accuracy_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -41,7 +41,10 @@ def fuzzy_system_vectorized(pctid, y, params):
 
     numerator = np.sum(low_anomaly * 0.3 + medium_anomaly * 0.6 + high_anomaly * 1.0, axis=0)
     denominator = np.sum(low_anomaly + medium_anomaly + high_anomaly, axis=0) + 1e-6
-    return numerator / denominator
+
+    # Regularização penalizando parâmetros extremos
+    regularization = np.sum(params ** 2) * 0.01  # Penalização leve
+    return numerator / denominator - regularization
 
 # Função para mutação coordenada
 def coordinated_mutation(individual, mutation_rate=0.1, epsilon=1e-6):
@@ -58,6 +61,7 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
     print("Iniciando treinamento...")
     population = np.random.uniform(0, 1, (pop_size, 6))
     mse_history_val, mse_history_test = [], []
+    mae_history_val, mae_history_test = [], []
     accuracy_history_val, accuracy_history_test = [], []
 
     def fitness_vectorized(individuals, dataset):
@@ -65,60 +69,62 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
         y_true = dataset['y'].values
         predictions = np.array([fuzzy_system_vectorized(pctid, y_true, ind) for ind in individuals])
         mse = np.mean((y_true[:, np.newaxis] - predictions.T) ** 2, axis=0)
+        mae = np.mean(np.abs(y_true[:, np.newaxis] - predictions.T), axis=0)
         accuracy = np.mean(np.round(y_true[:, np.newaxis]) == np.round(predictions.T), axis=0)
-        return mse, accuracy
+        return mse, mae, accuracy
 
     for generation in tqdm(range(generations), desc="Gerações", leave=True):
-        mse_train, _ = fitness_vectorized(population, train_data)
-        mse_val, acc_val = fitness_vectorized(population, val_data)
-        mse_test, acc_test = fitness_vectorized(population, test_data)
+        mse_train, _, _ = fitness_vectorized(population, train_data)
+        mse_val, mae_val, acc_val = fitness_vectorized(population, val_data)
+        mse_test, mae_test, acc_test = fitness_vectorized(population, test_data)
 
         # Melhor desempenho atual
-        best_mse_val = np.min(mse_val)
-        best_accuracy_val = np.max(acc_val)
-        mse_history_val.append(best_mse_val)
-        accuracy_history_val.append(best_accuracy_val)
+        mse_history_val.append(np.min(mse_val))
+        mae_history_val.append(np.min(mae_val))
+        accuracy_history_val.append(np.max(acc_val))
 
-        best_mse_test = np.min(mse_test)
-        best_accuracy_test = np.max(acc_test)
-        mse_history_test.append(best_mse_test)
-        accuracy_history_test.append(best_accuracy_test)
+        mse_history_test.append(np.min(mse_test))
+        mae_history_test.append(np.min(mae_test))
+        accuracy_history_test.append(np.max(acc_test))
 
         # Seleção elitista (20% melhores)
         sorted_indices = np.argsort(mse_train)
         best_individuals = population[sorted_indices[:pop_size // 2]]
 
-        # Validação cruzada (80% piores)
+        # Introdução de diversidade na população
+        diversity_individuals = np.random.uniform(0, 1, (pop_size // 10, 6))
+        best_individuals = np.vstack((best_individuals, diversity_individuals))
+
+        # Validação cruzada aprimorada
         worst_indices = sorted_indices[-int(pop_size * 0.5):]
         for idx in worst_indices:
             population[idx] = coordinated_mutation(population[idx], mutation_rate)
 
         # Crossover entre melhores
-        # Crossover entre melhores
         new_population = []
         while len(new_population) < pop_size:
-            parent1, parent2 = random.sample(list(best_individuals), 2)  # Uso dos melhores indivíduos
+            parent1, parent2 = random.sample(list(best_individuals), 2)
             split = len(parent1) // 2
             child = np.concatenate((parent1[:split], parent2[split:]))
             new_population.append(child)
-
 
         population = np.array(new_population[:pop_size])
 
     # Métricas finais
     print(f"MSE Final Validação: {mse_history_val[-1]:.4f}")
-    print(f"MSE Final Teste: {mse_history_test[-1]:.4f}")
+    print(f"MAE Final Validação: {mae_history_val[-1]:.4f}")
     print(f"Accuracy Final Validação: {accuracy_history_val[-1]:.4f}")
+    print(f"MSE Final Teste: {mse_history_test[-1]:.4f}")
+    print(f"MAE Final Teste: {mae_history_test[-1]:.4f}")
     print(f"Accuracy Final Teste: {accuracy_history_test[-1]:.4f}")
 
     # Gráficos finais
     os.makedirs('src/GaFuzzy/images', exist_ok=True)
 
-    # Gráficos com subplots
     plt.figure(figsize=(12, 12))
 
-    # MSE vs Gerações (subplot 211)
-    plt.subplot(211)
+    # MSE vs Gerações
+    plt.subplot(311)
     plt.plot(mse_history_val, label='Validação', marker='o')
     plt.plot(mse_history_test, label='Teste', marker='x')
     plt.xlabel('Geração')
@@ -127,8 +133,18 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
     plt.legend()
     plt.grid(True)
 
-    # Accuracy vs Gerações (subplot 212)
-    plt.subplot(212)
+    # MAE vs Gerações
+    plt.subplot(312)
+    plt.plot(mae_history_val, label='Validação', marker='o')
+    plt.plot(mae_history_test, label='Teste', marker='x')
+    plt.xlabel('Geração')
+    plt.ylabel('MAE')
+    plt.title('MAE vs Gerações')
+    plt.legend()
+    plt.grid(True)
+
+    # Accuracy vs Gerações
+    plt.subplot(313)
     plt.plot(accuracy_history_val, label='Validação', marker='o')
     plt.plot(accuracy_history_test, label='Teste', marker='x')
     plt.xlabel('Geração')
@@ -137,13 +153,11 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
     plt.legend()
     plt.grid(True)
 
-    # Salvar o gráfico combinado
     plt.tight_layout()
-    plt.savefig('src/GaFuzzy/images/metrics_vs_generations_vetorizado101.png')
+    plt.savefig('src/GaFuzzy/images/metrics_vs_generations_vetorizado101_3.png')
     plt.close()
 
-
-    return population[0], mse_history_val, mse_history_test, accuracy_history_val, accuracy_history_test
+    return population[0], mse_history_val, mae_history_val, accuracy_history_val
 
 # Executar o treinamento
-best_params, mse_val, mse_test, acc_val, acc_test = genetic_algorithm(train_data, val_data, test_data)
+best_params, mse_val, mae_val, acc_val = genetic_algorithm(train_data, val_data, test_data)
