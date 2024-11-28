@@ -13,7 +13,7 @@ SEED = 73
 np.random.seed(SEED)
 random.seed(SEED)
 
-# Carregar o dataset
+# Carregar o dataset (sem ordenação)
 file_path = 'datasets/data/processed_teste_train_config_1_database.csv'
 data = pd.read_csv(file_path)
 
@@ -58,8 +58,7 @@ def coordinated_mutation(individual, mutation_rate=0.1, epsilon=1e-6):
     return individual
 
 # Algoritmo Genético
-def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=10, mutation_rate=0.1, elitism_rate=0.1):
-    print("Iniciando treinamento...")
+def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=10, mutation_rate=0.1):
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     mse_history_val, mse_history_test = [], []
     accuracy_history_val, accuracy_history_test = [], []
@@ -71,7 +70,7 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
         return mse, accuracy
 
     for generation in tqdm(range(generations), desc="Gerações", leave=True):
-        train_scores = [fitness(ind, train_data) for ind in population]
+        scores = [fitness(ind, train_data) for ind in population]
         val_scores = [fitness(ind, val_data) for ind in population]
         test_scores = [fitness(ind, test_data) for ind in population]
 
@@ -86,76 +85,52 @@ def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=
         mse_history_test.append(best_mse_test)
         accuracy_history_test.append(best_accuracy_test)
 
-        # Seleção elitista
-        elitism_count = int(elitism_rate * pop_size)
-        sorted_population = sorted(zip(train_scores, population), key=lambda x: x[0][0])
-        elite_individuals = [ind for _, ind in sorted_population[:elitism_count]]
+        # Seleção elitista (20% melhores)
+        sorted_population = sorted(zip(scores, population), key=lambda x: x[0][0])
+        best_individuals = [ind for _, ind in sorted_population[:pop_size // 5]]
 
-        # Crossover entre melhores (excluindo elite)
-        best_individuals = [ind for _, ind in sorted_population[elitism_count:pop_size // 2]]
-        new_population = elite_individuals.copy()
+        # Validação cruzada (80% piores)
+        worst_individuals = [ind for _, ind in sorted_population[-int(pop_size * 0.5):]]
+        for ind in worst_individuals:
+            ind = coordinated_mutation(ind, mutation_rate)
 
+        # Crossover entre melhores
+        new_population = []
         while len(new_population) < pop_size:
             parent1, parent2 = random.sample(best_individuals, 2)
             split = len(parent1) // 2
             child = np.concatenate((parent1[:split], parent2[split:]))
             new_population.append(child)
 
-        # Aplicar mutação nos 50% piores
-        for ind in sorted_population[pop_size // 2:]:
-            mutated = coordinated_mutation(ind[1], mutation_rate)
-            new_population.append(mutated)
-
         population = new_population[:pop_size]
 
-    # Gráficos finais
-    os.makedirs('src/GaFuzzy/images', exist_ok=True)
+    return mse_history_val, mse_history_test, accuracy_history_val, accuracy_history_test
 
-    # MSE vs Gerações
+# Função para rodar múltiplas simulações
+def run_multiple_generations(train_data, val_data, test_data, generation_list, pop_size=50, mutation_rate=0.1):
+    results = {}
+    for generations in generation_list:
+        print(f"Rodando com {generations} gerações...")
+        mse_val, mse_test, acc_val, acc_test = genetic_algorithm(train_data, val_data, test_data, pop_size, generations, mutation_rate)
+        results[generations] = {"mse_val": mse_val, "mse_test": mse_test, "acc_val": acc_val, "acc_test": acc_test}
+    return results
+
+# Executar múltiplas simulações
+generation_list = [11, 51, 101, 151, 201, 251, 301]
+results = run_multiple_generations(train_data, val_data, test_data, generation_list)
+
+# Plotar resultados
+os.makedirs('src/GaFuzzy/images', exist_ok=True)
+
+for metric in ['mse', 'acc']:
     plt.figure(figsize=(12, 6))
-    plt.plot(mse_history_val, label='Validação', marker='o')
-    plt.plot(mse_history_test, label='Teste', marker='x')
+    for gen in generation_list:
+        plt.plot(results[gen][f'{metric}_val'], label=f'Validação ({gen} Gerações)')
+        plt.plot(results[gen][f'{metric}_test'], label=f'Teste ({gen} Gerações)')
     plt.xlabel('Geração')
-    plt.ylabel('MSE')
-    plt.title('MSE vs Gerações')
+    plt.ylabel('MSE' if metric == 'mse' else 'Accuracy')
+    plt.title(f'{metric.upper()} vs Gerações (Múltiplas Simulações)')
     plt.legend()
     plt.grid(True)
-    plt.savefig('src/GaFuzzy/images/mse_vs_generations101.png')
-    plt.close()
-
-    # Accuracy vs Gerações
-    plt.figure(figsize=(12, 6))
-    plt.plot(accuracy_history_val, label='Validação', marker='o')
-    plt.plot(accuracy_history_test, label='Teste', marker='x')
-    plt.xlabel('Geração')
-    plt.ylabel('Accuracy')
-    plt.title('Accuracy vs Gerações')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('src/GaFuzzy/images/accuracy_vs_generations101.png')
-    plt.close()
-
-    # Avaliação final nos conjuntos de validação e teste
-    best_individual = population[0]  # Presumindo que o melhor indivíduo é o primeiro
-    val_predictions = [fuzzy_system(row['pctid'], row['y'], best_individual) for _, row in val_data.iterrows()]
-    test_predictions = [fuzzy_system(row['pctid'], row['y'], best_individual) for _, row in test_data.iterrows()]
-
-    mse_val_final = mean_squared_error(val_data['y'], val_predictions)
-    f1_val = f1_score(np.round(val_data['y']), np.round(val_predictions))
-    accuracy_val_final = accuracy_score(np.round(val_data['y']), np.round(val_predictions))
-
-    mse_test_final = mean_squared_error(test_data['y'], test_predictions)
-    f1_test = f1_score(np.round(test_data['y']), np.round(test_predictions))
-    accuracy_test_final = accuracy_score(np.round(test_data['y']), np.round(test_predictions))
-
-    # Imprimir as métricas finais
-    print("\nMétricas no Conjunto de Validação:")
-    print(f"MSE: {mse_val_final:.4f}, F1 Score: {f1_val:.4f}, Accuracy: {accuracy_val_final:.4f}")
-
-    print("\nMétricas no Conjunto de Teste:")
-    print(f"MSE: {mse_test_final:.4f}, F1 Score: {f1_test:.4f}, Accuracy: {accuracy_test_final:.4f}")
-
-    return population[0], mse_history_val, mse_history_test, accuracy_history_val, accuracy_history_test
-
-# Executar o treinamento
-best_params, mse_val, mse_test, acc_val, acc_test = genetic_algorithm(train_data, val_data, test_data)
+    plt.savefig(f'src/GaFuzzy/images/{metric}_multi_generations.png')
+  
