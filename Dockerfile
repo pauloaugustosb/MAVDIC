@@ -11,9 +11,11 @@ RUN apt-get update && apt-get install -y \
 # Defina o diretório de trabalho
 WORKDIR /app
 
-# Instale as dependências
-COPY requirements.txt /app/requirements.txt
+# Copie os arquivos do projeto para o container
+COPY . /app
+
+# Instale as dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Comando padrão
+# Defina o comando padrão para executar o script principal
 CMD ["python3", "src/GaFuzzy/GaFuzzy.py"]
