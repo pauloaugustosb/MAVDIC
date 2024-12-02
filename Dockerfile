@@ -14,6 +14,9 @@ WORKDIR /app
 # Copie os arquivos do projeto para o container
 COPY . /app
 
+# Crie um diretório para armazenar imagens geradas
+RUN mkdir -p /app/src/GaFuzzy/images
+
 # Instale as dependências Python
 RUN pip install --no-cache-dir -r requirements.txt
 
