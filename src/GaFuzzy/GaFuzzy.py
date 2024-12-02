@@ -1,8 +1,9 @@
+# Importações necessárias
 import numpy as np
 import pandas as pd
 import pickle
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, f1_score, accuracy_score
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -95,7 +96,7 @@ def send_telegram_image(image_path):
 def genetic_algorithm(train_data, val_data, pop_size=50, generations=11, checkpoint_path='src/GaFuzzy/multiple_checkpoint.pkl'):
     # Inicializar população
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
-    train_history, val_history = [], []
+    train_history, val_history, mae_history = [], [], []
 
     def fitness(individual, dataset):
         predictions = [fuzzy_system(row['pctid'], row['y'], individual) for _, row in dataset.iterrows()]
@@ -105,15 +106,22 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=11, checkpo
         train_scores = [(fitness(ind, train_data), ind) for ind in population]
         val_scores = [(fitness(ind, val_data), ind) for ind in population]
 
+        # Cálculo das métricas
+        predictions = [fuzzy_system(row['pctid'], row['y'], min(population, key=lambda ind: fitness(ind, val_data))) for _, row in val_data.iterrows()]
+        mae = mean_absolute_error(val_data['y'], predictions)
+
         best_train = min(train_scores, key=lambda x: x[0])[0]
         best_val = min(val_scores, key=lambda x: x[0])[0]
+
         train_history.append(best_train)
         val_history.append(best_val)
+        mae_history.append(mae)
 
         # Salvar checkpoints a cada 10 gerações
-        if generation > 0 and generation % 25 == 0:
+        if generation > 0 and generation % 10 == 0:
             save_checkpoint(generation, population, train_history, val_history, checkpoint_path)
             send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
+            print(f"📊 MAE até a geração {generation}: {mae:.4f}")
 
         # Evolução da população
         selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
@@ -126,7 +134,7 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=11, checkpo
 
     # Melhor indivíduo
     best_params = min(population, key=lambda ind: fitness(ind, val_data))
-    return best_params, train_history, val_history
+    return best_params, train_history, val_history, mae_history
 
 # Múltiplas execuções com checkpoints
 def run_multiple_generations(
@@ -150,7 +158,7 @@ def run_multiple_generations(
         gen_count = generation_list[index]
         print(f"\n🔄 Executando {gen_count} gerações...\n")
         
-        best_params, train_history, val_history = genetic_algorithm(
+        best_params, train_history, val_history, mae_history = genetic_algorithm(
             train_data=train_data,
             val_data=val_data,
             pop_size=pop_size,
@@ -167,15 +175,16 @@ def run_multiple_generations(
         all_results.append({
             'generations': gen_count,
             'mse': mse,
+            'mae': mae_history[-1],  # MAE final
             'f1_score': f1,
             'accuracy': accuracy
         })
 
         # Gráficos
         plot_path = f'src/GaFuzzy/images/results_{gen_count}_generations.png'
-        plt.figure(figsize=(14, 6))
+        plt.figure(figsize=(18, 6))
 
-        plt.subplot(1, 2, 1)
+        plt.subplot(1, 3, 1)
         plt.plot(train_history, label='MSE - Treinamento', marker='o')
         plt.plot(val_history, label='MSE - Validação', marker='x')
         plt.xlabel('Geração')
@@ -184,7 +193,15 @@ def run_multiple_generations(
         plt.title(f'MSE ao Longo de {gen_count} Gerações')
         plt.grid()
 
-        plt.subplot(1, 2, 2)
+        plt.subplot(1, 3, 2)
+        plt.plot(mae_history, label='MAE', color='purple', marker='s')
+        plt.xlabel('Geração')
+        plt.ylabel('MAE')
+        plt.legend()
+        plt.title(f'MAE ao Longo de {gen_count} Gerações')
+        plt.grid()
+
+        plt.subplot(1, 3, 3)
         plt.plot([accuracy] * len(train_history), label='Accuracy - Validação', linestyle='--', marker='o')
         plt.xlabel('Geração')
         plt.ylabel('Accuracy')
