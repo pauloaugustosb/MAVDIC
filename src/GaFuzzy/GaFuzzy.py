@@ -55,9 +55,10 @@ def fuzzy_system(pctid, y, params):
     return anomaly_score
 
 # Funções para salvar e carregar checkpoints
-def save_checkpoint(generation_index, train_history, val_history, path='src/GaFuzzy/multiple_checkpoint.pkl'):
+def save_checkpoint(generation_index, population, train_history, val_history, path='src/GaFuzzy/multiple_checkpoint.pkl'):
     checkpoint = {
         'generation_index': generation_index,
+        'population': population,
         'train_history': train_history,
         'val_history': val_history
     }
@@ -90,8 +91,9 @@ def send_telegram_image(image_path):
     except Exception as e:
         print(f"Erro ao enviar imagem: {e}")
 
-# Algoritmo genético
-def genetic_algorithm(train_data, val_data, pop_size=50, generations=11):
+# Algoritmo genético com checkpoints periódicos
+def genetic_algorithm(train_data, val_data, pop_size=50, generations=11, checkpoint_path='src/GaFuzzy/multiple_checkpoint.pkl'):
+    # Inicializar população
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
     train_history, val_history = [], []
 
@@ -108,7 +110,12 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=11):
         train_history.append(best_train)
         val_history.append(best_val)
 
-        # Seleção dos melhores
+        # Salvar checkpoints a cada 10 gerações
+        if generation > 0 and generation % 25 == 0:
+            save_checkpoint(generation, population, train_history, val_history, checkpoint_path)
+            send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
+
+        # Evolução da população
         selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
         new_population = selected.copy()
         while len(new_population) < pop_size:
@@ -121,7 +128,7 @@ def genetic_algorithm(train_data, val_data, pop_size=50, generations=11):
     best_params = min(population, key=lambda ind: fitness(ind, val_data))
     return best_params, train_history, val_history
 
-# Múltiplas execuções
+# Múltiplas execuções com checkpoints
 def run_multiple_generations(
     train_data, 
     val_data, 
@@ -132,7 +139,7 @@ def run_multiple_generations(
     checkpoint = load_checkpoint(checkpoint_path)
     if checkpoint:
         print("🔄 Checkpoint detectado. Retomando progresso...")
-        start_index = checkpoint['generation_index']
+        start_index = checkpoint.get('generation_index', 0)
     else:
         print("🚀 Iniciando novo treinamento...")
         start_index = 0
@@ -147,7 +154,8 @@ def run_multiple_generations(
             train_data=train_data,
             val_data=val_data,
             pop_size=pop_size,
-            generations=gen_count
+            generations=gen_count,
+            checkpoint_path=checkpoint_path
         )
         
         # Calcular métricas
@@ -194,7 +202,6 @@ def run_multiple_generations(
 
     return all_results
 
-
-# Executar múltiplas gerações
+# Configurar execuções
 generation_list = [11, 51, 101, 151, 201, 251, 301, 351, 401]
 results = run_multiple_generations(train_data, val_data, generation_list=generation_list)
