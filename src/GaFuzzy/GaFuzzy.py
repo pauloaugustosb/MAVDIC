@@ -1,27 +1,35 @@
+# Importações necessárias
 import numpy as np
 import pandas as pd
 import pickle
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, f1_score, accuracy_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, f1_score, accuracy_score
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import tensorflow as tf
 import os
+import requests
 
-# Definir a semente randômica
+# Configuração do Telegram
+TELEGRAM_TOKEN = '7934109114:AAEQV9OiDgTJ7tXR7yHlL6GyUpFVqw53ZLo'
+CHAT_ID = '1120442358'
+
+# Definir a semente aleatória para reprodutibilidade
 SEED = 73
 np.random.seed(SEED)
 random.seed(SEED)
+tf.random.set_seed(SEED)
 
-# Carregar o dataset (sem ordenação)
+# Carregar o dataset
 file_path = 'datasets/data/processed_teste_train_config_1_database.csv'
 data = pd.read_csv(file_path)
 
-# Dividir o conjunto de dados: 60% Treinamento, 20% Validação, 20% Teste
+# Dividir o conjunto de dados em treino, validação e teste
 train_data, temp_data = train_test_split(data, test_size=0.4, random_state=SEED)
 val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=SEED)
 
-# Funções de pertinência fuzzy
+# Função de pertinência fuzzy
 def gaussmf(x, c, sigma, epsilon=1e-6):
     sigma = max(sigma, epsilon)
     return np.exp(-((x - c) ** 2) / (2 * sigma ** 2))
@@ -43,94 +51,174 @@ def fuzzy_system(pctid, y, params):
     medium_anomaly = np.fmin(medium_pctid, deviating_y)
     high_anomaly = np.fmin(high_pctid, anomalous_y)
 
-    anomaly_score = (np.sum(low_anomaly * 0.3 + medium_anomaly * 0.6 + high_anomaly * 1.0) /
+    anomaly_score = (np.sum(low_anomaly * 0.3 + medium_anomaly * 0.6 + high_anomaly * 1.0) / 
                      (np.sum(low_anomaly) + np.sum(medium_anomaly) + np.sum(high_anomaly) + 1e-6))
     return anomaly_score
 
-# Função para mutação coordenada
-def coordinated_mutation(individual, mutation_rate=0.1, epsilon=1e-6):
-    for i in range(0, len(individual), 2):  # Assume que C e S são pares consecutivos
-        if random.random() < mutation_rate:
-            delta_c = random.uniform(-0.1, 0.1)
-            delta_s = random.uniform(-0.05, 0.05)
-            individual[i] = np.clip(individual[i] + delta_c, 0, 1)  # Mutação no centro (C)
-            individual[i + 1] = np.clip(individual[i + 1] + delta_s, epsilon, 1)  # Mutação no sigma (S)
-    return individual
+# Funções para salvar e carregar checkpoints
+def save_checkpoint(generation_index, population, train_history, val_history, path='src/GaFuzzy/multiple_checkpoint.pkl'):
+    checkpoint = {
+        'generation_index': generation_index,
+        'population': population,
+        'train_history': train_history,
+        'val_history': val_history
+    }
+    with open(path, 'wb') as f:
+        pickle.dump(checkpoint, f)
 
-# Algoritmo Genético
-def genetic_algorithm(train_data, val_data, test_data, pop_size=50, generations=10, mutation_rate=0.1):
+def load_checkpoint(path='src/GaFuzzy/multiple_checkpoint.pkl'):
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    return None
+
+# Função para enviar mensagem no Telegram
+def send_telegram_message(message):
+    try:
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+        data = {'chat_id': CHAT_ID, 'text': message}
+        requests.post(url, data=data)
+    except Exception as e:
+        print(f"Erro ao enviar mensagem: {e}")
+
+# Função para enviar imagem para o Telegram
+def send_telegram_image(image_path):
+    try:
+        url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto'
+        with open(image_path, 'rb') as image_file:
+            files = {'photo': image_file}
+            data = {'chat_id': CHAT_ID}
+            requests.post(url, data=data, files=files)
+    except Exception as e:
+        print(f"Erro ao enviar imagem: {e}")
+
+# Algoritmo genético com checkpoints periódicos
+def genetic_algorithm(train_data, val_data, pop_size=50, generations=11, checkpoint_path='src/GaFuzzy/multiple_checkpoint.pkl'):
+    # Inicializar população
     population = [np.random.uniform(0, 1, 6) for _ in range(pop_size)]
-    mse_history_val, mse_history_test = [], []
-    accuracy_history_val, accuracy_history_test = [], []
+    train_history, val_history, mae_history = [], [], []
 
     def fitness(individual, dataset):
         predictions = [fuzzy_system(row['pctid'], row['y'], individual) for _, row in dataset.iterrows()]
-        mse = mean_squared_error(dataset['y'], predictions)
-        accuracy = accuracy_score(np.round(dataset['y']), np.round(predictions))
-        return mse, accuracy
+        return mean_squared_error(dataset['y'], predictions)
 
-    for generation in tqdm(range(generations), desc="Gerações", leave=True):
-        scores = [fitness(ind, train_data) for ind in population]
-        val_scores = [fitness(ind, val_data) for ind in population]
-        test_scores = [fitness(ind, test_data) for ind in population]
+    for generation in tqdm(range(generations), desc="Gerações"):
+        train_scores = [(fitness(ind, train_data), ind) for ind in population]
+        val_scores = [(fitness(ind, val_data), ind) for ind in population]
 
-        # Melhor desempenho atual
-        best_mse_val = min([score[0] for score in val_scores])
-        best_accuracy_val = max([score[1] for score in val_scores])
-        mse_history_val.append(best_mse_val)
-        accuracy_history_val.append(best_accuracy_val)
+        # Cálculo das métricas
+        predictions = [fuzzy_system(row['pctid'], row['y'], min(population, key=lambda ind: fitness(ind, val_data))) for _, row in val_data.iterrows()]
+        mae = mean_absolute_error(val_data['y'], predictions)
 
-        best_mse_test = min([score[0] for score in test_scores])
-        best_accuracy_test = max([score[1] for score in test_scores])
-        mse_history_test.append(best_mse_test)
-        accuracy_history_test.append(best_accuracy_test)
+        best_train = min(train_scores, key=lambda x: x[0])[0]
+        best_val = min(val_scores, key=lambda x: x[0])[0]
 
-        # Seleção elitista (20% melhores)
-        sorted_population = sorted(zip(scores, population), key=lambda x: x[0][0])
-        best_individuals = [ind for _, ind in sorted_population[:pop_size // 5]]
+        train_history.append(best_train)
+        val_history.append(best_val)
+        mae_history.append(mae)
 
-        # Validação cruzada (80% piores)
-        worst_individuals = [ind for _, ind in sorted_population[-int(pop_size * 0.5):]]
-        for ind in worst_individuals:
-            ind = coordinated_mutation(ind, mutation_rate)
+        # Salvar checkpoints a cada 10 gerações
+        if generation > 0 and generation % 10 == 0:
+            save_checkpoint(generation, population, train_history, val_history, checkpoint_path)
+            send_telegram_message(f"📍 Checkpoint salvo na geração {generation}.")
+            print(f"📊 MAE até a geração {generation}: {mae:.4f}")
 
-        # Crossover entre melhores
-        new_population = []
+        # Evolução da população
+        selected = [ind for _, ind in sorted(train_scores, key=lambda x: x[0])[:pop_size // 2]]
+        new_population = selected.copy()
         while len(new_population) < pop_size:
-            parent1, parent2 = random.sample(best_individuals, 2)
-            split = len(parent1) // 2
-            child = np.concatenate((parent1[:split], parent2[split:]))
+            p1, p2 = random.sample(selected, 2)
+            child = np.clip(np.mean([p1, p2], axis=0), 0, 1)
             new_population.append(child)
+        population = new_population
 
-        population = new_population[:pop_size]
+    # Melhor indivíduo
+    best_params = min(population, key=lambda ind: fitness(ind, val_data))
+    return best_params, train_history, val_history, mae_history
 
-    return mse_history_val, mse_history_test, accuracy_history_val, accuracy_history_test
+# Múltiplas execuções com checkpoints
+def run_multiple_generations(
+    train_data, 
+    val_data, 
+    pop_size=50, 
+    generation_list=[11, 51, 101, 151, 201, 251, 301, 351, 401],
+    checkpoint_path='src/GaFuzzy/multiple_checkpoint.pkl'
+):
+    checkpoint = load_checkpoint(checkpoint_path)
+    if checkpoint:
+        print("🔄 Checkpoint detectado. Retomando progresso...")
+        start_index = checkpoint.get('generation_index', 0)
+    else:
+        print("🚀 Iniciando novo treinamento...")
+        start_index = 0
 
-# Função para rodar múltiplas simulações
-def run_multiple_generations(train_data, val_data, test_data, generation_list, pop_size=50, mutation_rate=0.1):
-    results = {}
-    for generations in generation_list:
-        print(f"Rodando com {generations} gerações...")
-        mse_val, mse_test, acc_val, acc_test = genetic_algorithm(train_data, val_data, test_data, pop_size, generations, mutation_rate)
-        results[generations] = {"mse_val": mse_val, "mse_test": mse_test, "acc_val": acc_val, "acc_test": acc_test}
-    return results
+    all_results = []
 
-# Executar múltiplas simulações
-generation_list = [11, 51, 101, 151, 201, 251, 301]
-results = run_multiple_generations(train_data, val_data, test_data, generation_list)
+    for index in range(start_index, len(generation_list)):
+        gen_count = generation_list[index]
+        print(f"\n🔄 Executando {gen_count} gerações...\n")
+        
+        best_params, train_history, val_history, mae_history = genetic_algorithm(
+            train_data=train_data,
+            val_data=val_data,
+            pop_size=pop_size,
+            generations=gen_count,
+            checkpoint_path=checkpoint_path
+        )
+        
+        # Calcular métricas
+        predictions = [fuzzy_system(row['pctid'], row['y'], best_params) for _, row in val_data.iterrows()]
+        mse = mean_squared_error(val_data['y'], predictions)
+        f1 = f1_score(np.round(val_data['y']), np.round(predictions))
+        accuracy = accuracy_score(np.round(val_data['y']), np.round(predictions))
 
-# Plotar resultados
-os.makedirs('src/GaFuzzy/images', exist_ok=True)
+        all_results.append({
+            'generations': gen_count,
+            'mse': mse,
+            'mae': mae_history[-1],  # MAE final
+            'f1_score': f1,
+            'accuracy': accuracy
+        })
 
-for metric in ['mse', 'acc']:
-    plt.figure(figsize=(12, 6))
-    for gen in generation_list:
-        plt.plot(results[gen][f'{metric}_val'], label=f'Validação ({gen} Gerações)')
-        plt.plot(results[gen][f'{metric}_test'], label=f'Teste ({gen} Gerações)')
-    plt.xlabel('Geração')
-    plt.ylabel('MSE' if metric == 'mse' else 'Accuracy')
-    plt.title(f'{metric.upper()} vs Gerações (Múltiplas Simulações)')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(f'src/GaFuzzy/images/{metric}_multi_generations.png')
-  
+        # Gráficos
+        plot_path = f'src/GaFuzzy/images/results_{gen_count}_generations.png'
+        plt.figure(figsize=(18, 6))
+
+        plt.subplot(1, 3, 1)
+        plt.plot(train_history, label='MSE - Treinamento', marker='o')
+        plt.plot(val_history, label='MSE - Validação', marker='x')
+        plt.xlabel('Geração')
+        plt.ylabel('MSE')
+        plt.legend()
+        plt.title(f'MSE ao Longo de {gen_count} Gerações')
+        plt.grid()
+
+        plt.subplot(1, 3, 2)
+        plt.plot(mae_history, label='MAE', color='purple', marker='s')
+        plt.xlabel('Geração')
+        plt.ylabel('MAE')
+        plt.legend()
+        plt.title(f'MAE ao Longo de {gen_count} Gerações')
+        plt.grid()
+
+        plt.subplot(1, 3, 3)
+        plt.plot([accuracy] * len(train_history), label='Accuracy - Validação', linestyle='--', marker='o')
+        plt.xlabel('Geração')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.title(f'Accuracy ao Longo de {gen_count} Gerações')
+        plt.grid()
+
+        plt.tight_layout()
+        plt.savefig(plot_path)
+        plt.close()
+        send_telegram_image(plot_path)
+
+        # Checkpoint
+        save_checkpoint(index, train_history, val_history, checkpoint_path)
+
+    return all_results
+
+# Configurar execuções
+generation_list = [11, 51, 101, 151, 201, 251, 301, 351, 401]
+results = run_multiple_generations(train_data, val_data, generation_list=generation_list)
