@@ -1,0 +1,7 @@
+              precision    recall  f1-score   support
+
+     Anômalo       1.00      0.79      0.88      1020
+
+   micro avg       1.00      0.79      0.88      1020
+   macro avg       1.00      0.79      0.88      1020
+weighted avg       1.00      0.79      0.88      1020

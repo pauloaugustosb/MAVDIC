@@ -1,0 +1,9 @@
+              precision    recall  f1-score   support
+
+     Anômalo       0.99      1.00      0.99       306
+     Atenção       0.93      0.99      0.96       408
+      Normal       1.00      0.91      0.95       306
+
+    accuracy                           0.97      1020
+   macro avg       0.97      0.97      0.97      1020
+weighted avg       0.97      0.97      0.97      1020
